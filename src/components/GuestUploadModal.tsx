@@ -147,14 +147,22 @@ export function GuestUploadModal({ open, onClose, onAnalysisComplete }: GuestUpl
       setProgress(40);
       setStep("analyzing");
 
+      console.log("Sending file for analysis:", { 
+        fileName: file.name, 
+        fileType: file.type, 
+        fileSize: file.size,
+        hasBase64: !!base64File
+      });
+      
       // Call analyze function without angebotId (guest mode)
       const { data: analysisData, error: analysisError } = await supabase.functions.invoke(
         "analyze-angebot",
         {
           body: {
             // No angebotId = guest mode, no DB storage
-            extractedText: `Angebot: ${title}\nStadt: ${stadt || "Deutschland"}\nDateiname: ${file.name}`,
+            extractedText: `Angebot: ${title}\nStadt: ${stadt || "Deutschland"}`,
             fileBase64: base64File,
+            fileType: file.type,
             guestMode: true,
           },
         }

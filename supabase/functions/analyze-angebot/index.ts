@@ -45,7 +45,15 @@ serve(async (req) => {
   }
 
   try {
-    const { angebotId, extractedText, extractedPositionen } = await req.json();
+    const { angebotId, extractedText, extractedPositionen, fileBase64, fileType } = await req.json();
+    
+    console.log("Received request:", { 
+      hasAngebotId: !!angebotId, 
+      hasExtractedText: !!extractedText, 
+      hasExtractedPositionen: !!extractedPositionen,
+      hasFileBase64: !!fileBase64,
+      fileType: fileType || "none"
+    });
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
@@ -92,10 +100,34 @@ WICHTIG:
 - Beachte Materialqualität
 - Gib praktische Verhandlungstipps`;
 
-    const userPrompt = extractedPositionen 
-      ? `Analysiere diese Angebotspositionen:\n${JSON.stringify(extractedPositionen, null, 2)}`
-      : `Analysiere diesen Angebotstext und extrahiere alle Positionen:\n${extractedText}`;
+    // Build user message content - use Vision for images/PDFs, text otherwise
+    let userMessageContent: any;
+    
+    if (fileBase64 && fileType) {
+      console.log("Using Vision mode for document analysis");
+      // For images and PDFs, use multimodal Vision capabilities
+      const textInstruction = `Analysiere dieses Handwerker-Angebot im Detail. 
+Extrahiere ALLE Positionen mit:
+- Beschreibung der Leistung
+- Material (falls angegeben)
+- Menge und Einheit
+- Einzelpreis und Gesamtpreis
 
+Wichtig: Lies das Dokument vollständig und extrahiere die echten Daten daraus!
+${extractedText ? `Zusätzliche Info: ${extractedText}` : ""}`;
+      
+      userMessageContent = [
+        { type: "text", text: textInstruction },
+        { type: "image_url", image_url: { url: fileBase64 } }
+      ];
+    } else if (extractedPositionen) {
+      userMessageContent = `Analysiere diese Angebotspositionen:\n${JSON.stringify(extractedPositionen, null, 2)}`;
+    } else {
+      userMessageContent = `Analysiere diesen Angebotstext und extrahiere alle Positionen:\n${extractedText}`;
+    }
+
+    console.log("Sending to AI Gateway...");
+    
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -103,10 +135,10 @@ WICHTIG:
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
+          { role: "user", content: userMessageContent },
         ],
         tools: [
           {

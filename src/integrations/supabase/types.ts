@@ -14,7 +14,248 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      angebote: {
+        Row: {
+          analysis_summary: string | null
+          created_at: string | null
+          gesamtpreis: number | null
+          handwerker_firma: string | null
+          handwerker_name: string | null
+          id: string
+          original_file_name: string | null
+          original_file_url: string | null
+          plausibility_score: number | null
+          plz: string | null
+          region: string | null
+          stadt: string | null
+          status: string | null
+          title: string
+          updated_at: string | null
+          upload_date: string | null
+          user_id: string
+        }
+        Insert: {
+          analysis_summary?: string | null
+          created_at?: string | null
+          gesamtpreis?: number | null
+          handwerker_firma?: string | null
+          handwerker_name?: string | null
+          id?: string
+          original_file_name?: string | null
+          original_file_url?: string | null
+          plausibility_score?: number | null
+          plz?: string | null
+          region?: string | null
+          stadt?: string | null
+          status?: string | null
+          title: string
+          updated_at?: string | null
+          upload_date?: string | null
+          user_id: string
+        }
+        Update: {
+          analysis_summary?: string | null
+          created_at?: string | null
+          gesamtpreis?: number | null
+          handwerker_firma?: string | null
+          handwerker_name?: string | null
+          id?: string
+          original_file_name?: string | null
+          original_file_url?: string | null
+          plausibility_score?: number | null
+          plz?: string | null
+          region?: string | null
+          stadt?: string | null
+          status?: string | null
+          title?: string
+          updated_at?: string | null
+          upload_date?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      gewerke: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name: string
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      marktpreise: {
+        Row: {
+          datenpunkte: number | null
+          einheit: string | null
+          gewerk_id: string | null
+          id: string
+          last_updated: string | null
+          material: string | null
+          position_kategorie: string
+          preis_durchschnitt: number | null
+          preis_max: number | null
+          preis_min: number | null
+          region: string | null
+        }
+        Insert: {
+          datenpunkte?: number | null
+          einheit?: string | null
+          gewerk_id?: string | null
+          id?: string
+          last_updated?: string | null
+          material?: string | null
+          position_kategorie: string
+          preis_durchschnitt?: number | null
+          preis_max?: number | null
+          preis_min?: number | null
+          region?: string | null
+        }
+        Update: {
+          datenpunkte?: number | null
+          einheit?: string | null
+          gewerk_id?: string | null
+          id?: string
+          last_updated?: string | null
+          material?: string | null
+          position_kategorie?: string
+          preis_durchschnitt?: number | null
+          preis_max?: number | null
+          preis_min?: number | null
+          region?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "marktpreise_gewerk_id_fkey"
+            columns: ["gewerk_id"]
+            isOneToOne: false
+            referencedRelation: "gewerke"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      positionen: {
+        Row: {
+          abweichung_prozent: number | null
+          angebot_id: string
+          beschreibung: string
+          created_at: string | null
+          einheit: string | null
+          einzelpreis: number | null
+          gesamtpreis: number | null
+          gewerk_id: string | null
+          hinweis: string | null
+          id: string
+          marktpreis_durchschnitt: number | null
+          marktpreis_max: number | null
+          marktpreis_min: number | null
+          material: string | null
+          menge: number | null
+          plausibility_score: number | null
+          position_nummer: number | null
+          status: string | null
+        }
+        Insert: {
+          abweichung_prozent?: number | null
+          angebot_id: string
+          beschreibung: string
+          created_at?: string | null
+          einheit?: string | null
+          einzelpreis?: number | null
+          gesamtpreis?: number | null
+          gewerk_id?: string | null
+          hinweis?: string | null
+          id?: string
+          marktpreis_durchschnitt?: number | null
+          marktpreis_max?: number | null
+          marktpreis_min?: number | null
+          material?: string | null
+          menge?: number | null
+          plausibility_score?: number | null
+          position_nummer?: number | null
+          status?: string | null
+        }
+        Update: {
+          abweichung_prozent?: number | null
+          angebot_id?: string
+          beschreibung?: string
+          created_at?: string | null
+          einheit?: string | null
+          einzelpreis?: number | null
+          gesamtpreis?: number | null
+          gewerk_id?: string | null
+          hinweis?: string | null
+          id?: string
+          marktpreis_durchschnitt?: number | null
+          marktpreis_max?: number | null
+          marktpreis_min?: number | null
+          material?: string | null
+          menge?: number | null
+          plausibility_score?: number | null
+          position_nummer?: number | null
+          status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "positionen_angebot_id_fkey"
+            columns: ["angebot_id"]
+            isOneToOne: false
+            referencedRelation: "angebote"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "positionen_gewerk_id_fkey"
+            columns: ["gewerk_id"]
+            isOneToOne: false
+            referencedRelation: "gewerke"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          analyses_count: number | null
+          avatar_url: string | null
+          created_at: string | null
+          email: string | null
+          full_name: string | null
+          id: string
+          subscription_tier: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          analyses_count?: number | null
+          avatar_url?: string | null
+          created_at?: string | null
+          email?: string | null
+          full_name?: string | null
+          id: string
+          subscription_tier?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          analyses_count?: number | null
+          avatar_url?: string | null
+          created_at?: string | null
+          email?: string | null
+          full_name?: string | null
+          id?: string
+          subscription_tier?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

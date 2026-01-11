@@ -2,9 +2,26 @@ import { Button } from "@/components/ui/button";
 import { FileCheck, Menu, X } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 
-export function Header() {
+interface HeaderProps {
+  onUploadClick?: () => void;
+}
+
+export function Header({ onUploadClick }: HeaderProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const navigate = useNavigate();
+
+  const handleLoginClick = () => {
+    navigate("/auth");
+  };
+
+  const handleUploadClick = () => {
+    if (onUploadClick) {
+      onUploadClick();
+    }
+    setMobileMenuOpen(false);
+  };
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-lg border-b border-border">
@@ -35,10 +52,10 @@ export function Header() {
 
           {/* Desktop CTA */}
           <div className="hidden md:flex items-center gap-3">
-            <Button variant="ghost" size="sm">
+            <Button variant="ghost" size="sm" onClick={handleLoginClick}>
               Anmelden
             </Button>
-            <Button size="sm">
+            <Button size="sm" onClick={handleUploadClick}>
               Angebot prüfen
             </Button>
           </div>
@@ -85,10 +102,10 @@ export function Header() {
                 Preise
               </a>
               <div className="flex flex-col gap-2 pt-2 border-t border-border">
-                <Button variant="ghost" className="justify-start">
+                <Button variant="ghost" className="justify-start" onClick={handleLoginClick}>
                   Anmelden
                 </Button>
-                <Button className="justify-start">
+                <Button className="justify-start" onClick={handleUploadClick}>
                   Angebot prüfen
                 </Button>
               </div>

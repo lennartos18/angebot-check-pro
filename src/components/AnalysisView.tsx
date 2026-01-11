@@ -15,6 +15,15 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 
+type StatusType = "green" | "yellow" | "red";
+
+const toStatusType = (status: string | null): StatusType => {
+  if (status === "green" || status === "yellow" || status === "red") {
+    return status;
+  }
+  return "yellow"; // Default fallback
+};
+
 interface Position {
   id: string;
   position_nummer: number;
@@ -24,7 +33,7 @@ interface Position {
   einheit: string | null;
   einzelpreis: number | null;
   gesamtpreis: number | null;
-  status: string;
+  status: string | null;
   plausibility_score: number | null;
   hinweis: string | null;
   marktpreis_min: number | null;
@@ -342,7 +351,7 @@ export function AnalysisView({ angebotId, onBack }: AnalysisViewProps) {
                           : "-"}
                       </td>
                       <td className="px-4 py-4 text-center">
-                        <StatusBadge status={pos.status} size="sm" />
+                        <StatusBadge status={toStatusType(pos.status)} size="sm" />
                       </td>
                     </tr>
                     {/* Hint Row */}

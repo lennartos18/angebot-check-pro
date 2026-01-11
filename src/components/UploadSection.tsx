@@ -1,10 +1,15 @@
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Upload, FileText, Image, ArrowRight } from "lucide-react";
-import { useState } from "react";
+import { useState, useRef } from "react";
 
-export function UploadSection() {
+interface UploadSectionProps {
+  onUploadClick?: () => void;
+}
+
+export function UploadSection({ onUploadClick }: UploadSectionProps) {
   const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -18,7 +23,16 @@ export function UploadSection() {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    // Handle file upload logic here
+    // Trigger upload modal when file is dropped
+    if (onUploadClick) {
+      onUploadClick();
+    }
+  };
+
+  const handleClick = () => {
+    if (onUploadClick) {
+      onUploadClick();
+    }
   };
 
   return (
@@ -46,6 +60,7 @@ export function UploadSection() {
             transition={{ duration: 0.5, delay: 0.1 }}
           >
             <div
+              onClick={handleClick}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
@@ -81,12 +96,6 @@ export function UploadSection() {
                     Foto
                   </span>
                 </div>
-
-                <input
-                  type="file"
-                  accept=".pdf,.jpg,.jpeg,.png"
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                />
               </div>
             </div>
           </motion.div>
@@ -99,7 +108,7 @@ export function UploadSection() {
             transition={{ duration: 0.5, delay: 0.2 }}
             className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-4"
           >
-            <Button variant="hero" size="lg" className="group">
+            <Button variant="hero" size="lg" className="group" onClick={onUploadClick}>
               Angebot analysieren
               <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
             </Button>

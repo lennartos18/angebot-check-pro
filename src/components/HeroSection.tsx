@@ -3,7 +3,11 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { motion } from "framer-motion";
 import { Upload, Shield, TrendingUp, ArrowRight } from "lucide-react";
 
-export function HeroSection() {
+interface HeroSectionProps {
+  onUploadClick?: () => void;
+}
+
+export function HeroSection({ onUploadClick }: HeroSectionProps) {
   return (
     <section className="relative min-h-screen flex items-center pt-16 overflow-hidden">
       {/* Background Gradient */}
@@ -78,7 +82,7 @@ export function HeroSection() {
             transition={{ duration: 0.4, delay: 0.15 }}
             className="flex flex-col sm:flex-row gap-4 mb-12"
           >
-            <Button variant="hero" size="xl" className="group">
+            <Button variant="hero" size="xl" className="group" onClick={onUploadClick}>
               <Upload className="w-5 h-5" />
               Angebot hochladen
               <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />

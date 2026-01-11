@@ -24,6 +24,11 @@ export default function Auth() {
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
+        // Check if there's a guest analysis to save
+        const guestAnalysis = localStorage.getItem("guestAnalysis");
+        if (guestAnalysis) {
+          saveGuestAnalysis(session.user.id, JSON.parse(guestAnalysis));
+        }
         navigate("/dashboard");
       }
     });
@@ -36,6 +41,65 @@ export default function Auth() {
 
     return () => subscription.unsubscribe();
   }, [navigate]);
+
+  const saveGuestAnalysis = async (userId: string, analysis: any) => {
+    try {
+      // Create angebot entry for the guest analysis
+      const { data: angebot, error: insertError } = await supabase
+        .from("angebote")
+        .insert({
+          user_id: userId,
+          title: analysis.titel || "Übernommene Analyse",
+          stadt: analysis.stadt || null,
+          status: "completed",
+          gesamtpreis: analysis.gesamtpreis,
+          plausibility_score: analysis.plausibility_score,
+          analysis_summary: analysis.analysis_summary,
+          handwerker_firma: analysis.handwerker_firma,
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error("Error saving guest analysis:", insertError);
+        return;
+      }
+
+      // Insert positions
+      if (analysis.positionen && angebot) {
+        const positionenToInsert = analysis.positionen.map((pos: any, idx: number) => ({
+          angebot_id: angebot.id,
+          position_nummer: idx + 1,
+          beschreibung: pos.beschreibung,
+          material: pos.material,
+          menge: pos.menge,
+          einheit: pos.einheit,
+          einzelpreis: pos.einzelpreis,
+          gesamtpreis: pos.gesamtpreis,
+          status: pos.status,
+          plausibility_score: pos.plausibility_score,
+          hinweis: pos.hinweis,
+          marktpreis_min: pos.marktpreis_min,
+          marktpreis_max: pos.marktpreis_max,
+          marktpreis_durchschnitt: pos.marktpreis_durchschnitt,
+          abweichung_prozent: pos.abweichung_prozent,
+        }));
+
+        await supabase.from("positionen").insert(positionenToInsert);
+      }
+
+      // Clear guest analysis from localStorage
+      localStorage.removeItem("guestAnalysis");
+      localStorage.removeItem("pendingAction");
+
+      toast({
+        title: "Analyse gespeichert!",
+        description: "Ihre Gast-Analyse wurde in Ihrem Konto gespeichert.",
+      });
+    } catch (error) {
+      console.error("Error saving guest analysis:", error);
+    }
+  };
 
   const validateForm = (): boolean => {
     const newErrors: typeof errors = {};

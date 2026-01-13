@@ -341,6 +341,98 @@ export type Database = {
         }
         Relationships: []
       }
+      guest_payments: {
+        Row: {
+          amount_cents: number | null
+          completed_at: string | null
+          created_at: string | null
+          currency: string | null
+          customer_email: string | null
+          id: string
+          pdf_token: string | null
+          pdf_url: string | null
+          session_id: string | null
+          status: string | null
+          stripe_payment_intent: string | null
+          stripe_session_id: string | null
+        }
+        Insert: {
+          amount_cents?: number | null
+          completed_at?: string | null
+          created_at?: string | null
+          currency?: string | null
+          customer_email?: string | null
+          id?: string
+          pdf_token?: string | null
+          pdf_url?: string | null
+          session_id?: string | null
+          status?: string | null
+          stripe_payment_intent?: string | null
+          stripe_session_id?: string | null
+        }
+        Update: {
+          amount_cents?: number | null
+          completed_at?: string | null
+          created_at?: string | null
+          currency?: string | null
+          customer_email?: string | null
+          id?: string
+          pdf_token?: string | null
+          pdf_url?: string | null
+          session_id?: string | null
+          status?: string | null
+          stripe_payment_intent?: string | null
+          stripe_session_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "guest_payments_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "guest_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      guest_sessions: {
+        Row: {
+          analysis_json: Json | null
+          created_at: string | null
+          documents_json: Json | null
+          email: string | null
+          expires_at: string | null
+          id: string
+          ip_hash: string | null
+          plz: string | null
+          session_token: string
+          stadt: string | null
+        }
+        Insert: {
+          analysis_json?: Json | null
+          created_at?: string | null
+          documents_json?: Json | null
+          email?: string | null
+          expires_at?: string | null
+          id?: string
+          ip_hash?: string | null
+          plz?: string | null
+          session_token: string
+          stadt?: string | null
+        }
+        Update: {
+          analysis_json?: Json | null
+          created_at?: string | null
+          documents_json?: Json | null
+          email?: string | null
+          expires_at?: string | null
+          id?: string
+          ip_hash?: string | null
+          plz?: string | null
+          session_token?: string
+          stadt?: string | null
+        }
+        Relationships: []
+      }
       marktpreise: {
         Row: {
           datenpunkte: number | null

@@ -17,7 +17,9 @@ export type Database = {
       angebote: {
         Row: {
           analysis_summary: string | null
+          anonymized_document_id: string | null
           created_at: string | null
+          document_type: string | null
           gesamtpreis: number | null
           handwerker_firma: string | null
           handwerker_name: string | null
@@ -27,6 +29,7 @@ export type Database = {
           plausibility_score: number | null
           plz: string | null
           region: string | null
+          service_domain: string | null
           stadt: string | null
           status: string | null
           title: string
@@ -36,7 +39,9 @@ export type Database = {
         }
         Insert: {
           analysis_summary?: string | null
+          anonymized_document_id?: string | null
           created_at?: string | null
+          document_type?: string | null
           gesamtpreis?: number | null
           handwerker_firma?: string | null
           handwerker_name?: string | null
@@ -46,6 +51,7 @@ export type Database = {
           plausibility_score?: number | null
           plz?: string | null
           region?: string | null
+          service_domain?: string | null
           stadt?: string | null
           status?: string | null
           title: string
@@ -55,7 +61,9 @@ export type Database = {
         }
         Update: {
           analysis_summary?: string | null
+          anonymized_document_id?: string | null
           created_at?: string | null
+          document_type?: string | null
           gesamtpreis?: number | null
           handwerker_firma?: string | null
           handwerker_name?: string | null
@@ -65,6 +73,7 @@ export type Database = {
           plausibility_score?: number | null
           plz?: string | null
           region?: string | null
+          service_domain?: string | null
           stadt?: string | null
           status?: string | null
           title?: string
@@ -72,7 +81,157 @@ export type Database = {
           upload_date?: string | null
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "angebote_anonymized_document_id_fkey"
+            columns: ["anonymized_document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      document_positions: {
+        Row: {
+          created_at: string | null
+          document_id: string
+          id: string
+          normalized_material_id: string | null
+          normalized_service_id: string | null
+          position_date: string | null
+          position_type: string
+          quantity: number | null
+          raw_text: string
+          region_cluster_id: string | null
+          service_domain: string | null
+          tax_rate: number | null
+          time_bucket: string | null
+          total_price: number | null
+          unit: string | null
+          unit_price: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          document_id: string
+          id?: string
+          normalized_material_id?: string | null
+          normalized_service_id?: string | null
+          position_date?: string | null
+          position_type: string
+          quantity?: number | null
+          raw_text: string
+          region_cluster_id?: string | null
+          service_domain?: string | null
+          tax_rate?: number | null
+          time_bucket?: string | null
+          total_price?: number | null
+          unit?: string | null
+          unit_price?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          document_id?: string
+          id?: string
+          normalized_material_id?: string | null
+          normalized_service_id?: string | null
+          position_date?: string | null
+          position_type?: string
+          quantity?: number | null
+          raw_text?: string
+          region_cluster_id?: string | null
+          service_domain?: string | null
+          tax_rate?: number | null
+          time_bucket?: string | null
+          total_price?: number | null
+          unit?: string | null
+          unit_price?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_positions_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_positions_normalized_material_id_fkey"
+            columns: ["normalized_material_id"]
+            isOneToOne: false
+            referencedRelation: "normalized_materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_positions_normalized_service_id_fkey"
+            columns: ["normalized_service_id"]
+            isOneToOne: false
+            referencedRelation: "normalized_services"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_positions_region_cluster_id_fkey"
+            columns: ["region_cluster_id"]
+            isOneToOne: false
+            referencedRelation: "region_clusters"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      documents: {
+        Row: {
+          anonymized_customer_id: string | null
+          anonymized_provider_id: string | null
+          created_at: string | null
+          currency: string | null
+          document_type: string
+          id: string
+          position_count: number | null
+          region_cluster_id: string | null
+          service_domain: string
+          submission_date: string
+          time_bucket: string
+          total_gross_amount: number | null
+          total_net_amount: number | null
+        }
+        Insert: {
+          anonymized_customer_id?: string | null
+          anonymized_provider_id?: string | null
+          created_at?: string | null
+          currency?: string | null
+          document_type: string
+          id?: string
+          position_count?: number | null
+          region_cluster_id?: string | null
+          service_domain: string
+          submission_date?: string
+          time_bucket: string
+          total_gross_amount?: number | null
+          total_net_amount?: number | null
+        }
+        Update: {
+          anonymized_customer_id?: string | null
+          anonymized_provider_id?: string | null
+          created_at?: string | null
+          currency?: string | null
+          document_type?: string
+          id?: string
+          position_count?: number | null
+          region_cluster_id?: string | null
+          service_domain?: string
+          submission_date?: string
+          time_bucket?: string
+          total_gross_amount?: number | null
+          total_net_amount?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "documents_region_cluster_id_fkey"
+            columns: ["region_cluster_id"]
+            isOneToOne: false
+            referencedRelation: "region_clusters"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       gewerke: {
         Row: {
@@ -141,6 +300,77 @@ export type Database = {
             columns: ["gewerk_id"]
             isOneToOne: false
             referencedRelation: "gewerke"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      normalized_materials: {
+        Row: {
+          created_at: string | null
+          id: string
+          keywords: string[] | null
+          material_category: string | null
+          name: string
+          service_domain: string
+          standard_unit: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          keywords?: string[] | null
+          material_category?: string | null
+          name: string
+          service_domain: string
+          standard_unit?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          keywords?: string[] | null
+          material_category?: string | null
+          name?: string
+          service_domain?: string
+          standard_unit?: string | null
+        }
+        Relationships: []
+      }
+      normalized_services: {
+        Row: {
+          category_id: string | null
+          created_at: string | null
+          description: string | null
+          id: string
+          keywords: string[] | null
+          name: string
+          service_domain: string
+          standard_unit: string | null
+        }
+        Insert: {
+          category_id?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          keywords?: string[] | null
+          name: string
+          service_domain: string
+          standard_unit?: string | null
+        }
+        Update: {
+          category_id?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          keywords?: string[] | null
+          name?: string
+          service_domain?: string
+          standard_unit?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "normalized_services_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "service_categories"
             referencedColumns: ["id"]
           },
         ]
@@ -256,12 +486,117 @@ export type Database = {
         }
         Relationships: []
       }
+      region_clusters: {
+        Row: {
+          area_type: string | null
+          bundesland: string | null
+          created_at: string | null
+          id: string
+          plz_prefix: string
+          region_name: string | null
+        }
+        Insert: {
+          area_type?: string | null
+          bundesland?: string | null
+          created_at?: string | null
+          id?: string
+          plz_prefix: string
+          region_name?: string | null
+        }
+        Update: {
+          area_type?: string | null
+          bundesland?: string | null
+          created_at?: string | null
+          id?: string
+          plz_prefix?: string
+          region_name?: string | null
+        }
+        Relationships: []
+      }
+      service_categories: {
+        Row: {
+          code: string | null
+          created_at: string | null
+          description: string | null
+          id: string
+          name: string
+          parent_id: string | null
+          service_domain: string
+        }
+        Insert: {
+          code?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name: string
+          parent_id?: string | null
+          service_domain: string
+        }
+        Update: {
+          code?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+          parent_id?: string | null
+          service_domain?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_categories_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "service_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vehicle_related_extensions: {
+        Row: {
+          created_at: string | null
+          id: string
+          labor_unit_price: number | null
+          labor_units: number | null
+          part_type: string | null
+          position_id: string | null
+          vehicle_class: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          labor_unit_price?: number | null
+          labor_units?: number | null
+          part_type?: string | null
+          position_id?: string | null
+          vehicle_class?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          labor_unit_price?: number | null
+          labor_units?: number | null
+          part_type?: string | null
+          position_id?: string | null
+          vehicle_class?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vehicle_related_extensions_position_id_fkey"
+            columns: ["position_id"]
+            isOneToOne: false
+            referencedRelation: "document_positions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      anonymize_text: { Args: { input_text: string }; Returns: string }
+      generate_time_bucket: { Args: { d: string }; Returns: string }
+      get_region_cluster_id: { Args: { plz: string }; Returns: string }
     }
     Enums: {
       [_ in never]: never

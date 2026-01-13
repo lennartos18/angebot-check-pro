@@ -96,6 +96,8 @@ export type Database = {
           created_at: string | null
           document_id: string
           id: string
+          normalization_confidence: number | null
+          normalization_status: string | null
           normalized_material_id: string | null
           normalized_service_id: string | null
           position_date: string | null
@@ -114,6 +116,8 @@ export type Database = {
           created_at?: string | null
           document_id: string
           id?: string
+          normalization_confidence?: number | null
+          normalization_status?: string | null
           normalized_material_id?: string | null
           normalized_service_id?: string | null
           position_date?: string | null
@@ -132,6 +136,8 @@ export type Database = {
           created_at?: string | null
           document_id?: string
           id?: string
+          normalization_confidence?: number | null
+          normalization_status?: string | null
           normalized_material_id?: string | null
           normalized_service_id?: string | null
           position_date?: string | null
@@ -303,6 +309,51 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      normalization_stopwords: {
+        Row: {
+          created_at: string | null
+          id: string
+          word: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          word: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          word?: string
+        }
+        Relationships: []
+      }
+      normalization_synonyms: {
+        Row: {
+          canonical_term: string
+          created_at: string | null
+          id: string
+          service_domain: string
+          synonym: string
+          weight: number | null
+        }
+        Insert: {
+          canonical_term: string
+          created_at?: string | null
+          id?: string
+          service_domain: string
+          synonym: string
+          weight?: number | null
+        }
+        Update: {
+          canonical_term?: string
+          created_at?: string | null
+          id?: string
+          service_domain?: string
+          synonym?: string
+          weight?: number | null
+        }
+        Relationships: []
       }
       normalized_materials: {
         Row: {
@@ -547,6 +598,66 @@ export type Database = {
             columns: ["parent_id"]
             isOneToOne: false
             referencedRelation: "service_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      text_normalizations: {
+        Row: {
+          cleaned_text: string
+          confidence_score: number
+          created_at: string | null
+          id: string
+          is_verified: boolean | null
+          match_count: number | null
+          normalized_material_id: string | null
+          normalized_service_id: string | null
+          position_type: string | null
+          raw_text: string
+          service_domain: string
+          updated_at: string | null
+        }
+        Insert: {
+          cleaned_text: string
+          confidence_score: number
+          created_at?: string | null
+          id?: string
+          is_verified?: boolean | null
+          match_count?: number | null
+          normalized_material_id?: string | null
+          normalized_service_id?: string | null
+          position_type?: string | null
+          raw_text: string
+          service_domain: string
+          updated_at?: string | null
+        }
+        Update: {
+          cleaned_text?: string
+          confidence_score?: number
+          created_at?: string | null
+          id?: string
+          is_verified?: boolean | null
+          match_count?: number | null
+          normalized_material_id?: string | null
+          normalized_service_id?: string | null
+          position_type?: string | null
+          raw_text?: string
+          service_domain?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "text_normalizations_normalized_material_id_fkey"
+            columns: ["normalized_material_id"]
+            isOneToOne: false
+            referencedRelation: "normalized_materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "text_normalizations_normalized_service_id_fkey"
+            columns: ["normalized_service_id"]
+            isOneToOne: false
+            referencedRelation: "normalized_services"
             referencedColumns: ["id"]
           },
         ]

@@ -25,6 +25,13 @@ interface NormalizationResult {
   confidence_score: number;
   normalization_status: 'normalized' | 'unmatched';
   matching_keywords: string[];
+  // Kfz-spezifische Felder
+  kfz_part_type?: 'oem' | 'aftermarket' | 'no_name' | null;
+  labor_units_aw?: number | null;
+  vehicle_class?: string | null;
+  // Validierung
+  validation_warnings: string[];
+  is_special_service: boolean;
 }
 
 interface NormalizedService {
@@ -63,6 +70,41 @@ interface ExistingNormalization {
 
 // Constants
 const CONFIDENCE_THRESHOLD = 70;
+
+// Kfz-spezifische Keywords für Ersatzteil-Klassifikation
+const OEM_KEYWORDS = [
+  'original', 'oem', 'erstausruester', 'erstausrüster', 'hersteller', 
+  'genuine', 'oe', 'werksersatzteil', 'original-', 'bmw', 'mercedes', 
+  'vw', 'audi', 'porsche', 'toyota', 'honda', 'ford'
+];
+
+const AFTERMARKET_KEYWORDS = [
+  'bosch', 'brembo', 'bilstein', 'sachs', 'lemfoerder', 'lemförder',
+  'mann', 'mahle', 'valeo', 'luk', 'ate', 'trw', 'febi', 'swag',
+  'meyle', 'zimmermann', 'textar', 'hella', 'continental', 'ngk'
+];
+
+const NO_NAME_KEYWORDS = [
+  'no-name', 'noname', 'nachbau', 'unbekannt', 'universal', 'generisch',
+  'guenstig', 'günstig', 'preiswert', 'budget', 'economy'
+];
+
+// Sonderleistungen Keywords
+const SPECIAL_SERVICE_KEYWORDS = [
+  'notdienst', 'notfall', 'sofort', 'express', 'eilauftrag', 'wochenende',
+  'feiertag', 'nacht', 'sonderanfertigung', 'einzelstueck', 'einzelstück',
+  'spezialanfertigung', 'massanfertigung', 'maßanfertigung', 'unikat'
+];
+
+// Fahrzeugklassen-Keywords
+const VEHICLE_CLASS_KEYWORDS: Record<string, string[]> = {
+  'kleinwagen': ['polo', 'golf', 'fiesta', 'corsa', 'clio', 'yaris', '206', '208', 'up', 'adam'],
+  'mittelklasse': ['passat', '3er', 'c-klasse', 'a4', 'mondeo', 'octavia', 'mazda3', 'camry'],
+  'oberklasse': ['5er', 'e-klasse', 'a6', '7er', 's-klasse', 'a8', 'xf', 'ct6'],
+  'premium': ['porsche', 'maserati', 'bentley', 'rolls', 'ferrari', 'lamborghini', 'amg'],
+  'suv': ['tiguan', 'x3', 'x5', 'glc', 'q5', 'rav4', 'cr-v', 'tucson', 'sportage'],
+  'transporter': ['transporter', 'sprinter', 'crafter', 'vito', 'transit', 'ducato', 'master']
+};
 
 // Helper: Load stopwords
 async function loadStopwords(supabase: SupabaseClient): Promise<Set<string>> {
@@ -179,6 +221,108 @@ async function findLearnedNormalization(
   return null;
 }
 
+// NEW: Kfz-Ersatzteil-Klassifikation
+function classifyKfzPartType(text: string): 'oem' | 'aftermarket' | 'no_name' | null {
+  const lowerText = text.toLowerCase();
+  
+  // Check OEM first (highest priority)
+  if (OEM_KEYWORDS.some(kw => lowerText.includes(kw))) {
+    return 'oem';
+  }
+  
+  // Check known aftermarket brands
+  if (AFTERMARKET_KEYWORDS.some(kw => lowerText.includes(kw))) {
+    return 'aftermarket';
+  }
+  
+  // Check no-name indicators
+  if (NO_NAME_KEYWORDS.some(kw => lowerText.includes(kw))) {
+    return 'no_name';
+  }
+  
+  return null;
+}
+
+// NEW: Fahrzeugklasse erkennen
+function detectVehicleClass(text: string): string | null {
+  const lowerText = text.toLowerCase();
+  
+  for (const [vehicleClass, keywords] of Object.entries(VEHICLE_CLASS_KEYWORDS)) {
+    if (keywords.some(kw => lowerText.includes(kw))) {
+      return vehicleClass;
+    }
+  }
+  
+  return null;
+}
+
+// NEW: Arbeitswerte (AW) extrahieren
+function extractLaborUnits(text: string, unit?: string): number | null {
+  const lowerText = text.toLowerCase();
+  const lowerUnit = (unit || '').toLowerCase();
+  
+  // Check if unit is AW
+  if (lowerUnit === 'aw' || lowerUnit === 'arbeitswert' || lowerUnit === 'arbeitswerte') {
+    // Try to extract number from unit context
+    const awMatch = lowerText.match(/(\d+(?:[.,]\d+)?)\s*(?:aw|arbeitswert)/i);
+    if (awMatch) {
+      return parseFloat(awMatch[1].replace(',', '.'));
+    }
+  }
+  
+  // Look for AW pattern in text
+  const awPattern = /(\d+(?:[.,]\d+)?)\s*(?:aw|arbeitswert|arbeitswerte)/i;
+  const match = lowerText.match(awPattern);
+  if (match) {
+    return parseFloat(match[1].replace(',', '.'));
+  }
+  
+  return null;
+}
+
+// NEW: Sonderleistung erkennen
+function isSpecialService(text: string): boolean {
+  const lowerText = text.toLowerCase();
+  return SPECIAL_SERVICE_KEYWORDS.some(kw => lowerText.includes(kw));
+}
+
+// NEW: Position validieren
+function validatePosition(
+  rawText: string,
+  quantity?: number,
+  unit?: string,
+  totalPrice?: number
+): string[] {
+  const warnings: string[] = [];
+  
+  // Check for missing quantity
+  if (quantity === undefined || quantity === null || quantity <= 0) {
+    warnings.push('Keine Mengenangabe vorhanden');
+  }
+  
+  // Check for missing unit
+  if (!unit || unit.trim() === '') {
+    warnings.push('Keine Einheit angegeben');
+  }
+  
+  // Check for very short description
+  if (rawText.length < 5) {
+    warnings.push('Beschreibung sehr kurz - möglicherweise unvollständig');
+  }
+  
+  // Check for missing price
+  if (totalPrice === undefined || totalPrice === null) {
+    warnings.push('Kein Preis angegeben');
+  }
+  
+  // Check for suspiciously high values
+  if (totalPrice && totalPrice > 50000) {
+    warnings.push('Auffällig hoher Positionswert - bitte prüfen');
+  }
+  
+  return warnings;
+}
+
 // Step 1: Text preprocessing
 function preprocessText(
   rawText: string,
@@ -232,8 +376,12 @@ function classifyPositionType(
     return 'pauschale';
   }
   
-  // Spare part indicators (automotive specific)
-  const partIndicators = ['ersatzteil', 'teil', 'oem', 'original', 'zubehoer', 'aftermarket'];
+  // Spare part indicators (automotive specific) - enhanced
+  const partIndicators = [
+    'ersatzteil', 'teil', 'oem', 'original', 'zubehoer', 'aftermarket',
+    'bremsbelag', 'bremsscheibe', 'filter', 'riemen', 'kupplung', 'stossdaempfer',
+    'batterie', 'zuendkerze', 'lampe', 'scheibenwischer', 'dichtung'
+  ];
   if (partIndicators.some(i => lowerText.includes(i))) {
     return 'ersatzteil';
   }
@@ -377,6 +525,24 @@ async function normalizePosition(
 ): Promise<NormalizationResult> {
   console.log(`Normalizing: "${input.raw_text}" (${input.service_domain})`);
   
+  // Phase 4: Validate input
+  const validationWarnings = validatePosition(
+    input.raw_text,
+    input.quantity,
+    input.unit,
+    input.total_price
+  );
+  
+  if (validationWarnings.length > 0) {
+    console.log(`Validation warnings: ${validationWarnings.join(', ')}`);
+  }
+  
+  // Check for special services
+  const isSpecial = isSpecialService(input.raw_text);
+  if (isSpecial) {
+    console.log('Detected special service (Notdienst/Sonderanfertigung)');
+  }
+  
   // Load reference data
   const [stopwords, synonyms, services, materials] = await Promise.all([
     loadStopwords(supabase),
@@ -392,6 +558,33 @@ async function normalizePosition(
   // Step 2: Classify position type
   const positionType = classifyPositionType(cleanedText, input.unit);
   console.log(`Position type: ${positionType}`);
+  
+  // Phase 3: Kfz-specific classification
+  let kfzPartType: 'oem' | 'aftermarket' | 'no_name' | null = null;
+  let laborUnitsAw: number | null = null;
+  let vehicleClass: string | null = null;
+  
+  if (input.service_domain === 'werkstatt') {
+    // Classify part type for materials/parts
+    if (positionType === 'ersatzteil' || positionType === 'material') {
+      kfzPartType = classifyKfzPartType(input.raw_text);
+      console.log(`Kfz part type: ${kfzPartType || 'unknown'}`);
+    }
+    
+    // Extract labor units for labor positions
+    if (positionType === 'arbeitszeit') {
+      laborUnitsAw = extractLaborUnits(input.raw_text, input.unit);
+      if (laborUnitsAw) {
+        console.log(`Labor units (AW): ${laborUnitsAw}`);
+      }
+    }
+    
+    // Detect vehicle class
+    vehicleClass = detectVehicleClass(input.raw_text);
+    if (vehicleClass) {
+      console.log(`Vehicle class: ${vehicleClass}`);
+    }
+  }
   
   // Check for learned normalization first
   const learned = await findLearnedNormalization(supabase, cleanedText, input.service_domain);
@@ -420,7 +613,12 @@ async function normalizePosition(
       normalized_material_name: materialName,
       confidence_score: learned.confidence_score,
       normalization_status: 'normalized',
-      matching_keywords: []
+      matching_keywords: [],
+      kfz_part_type: kfzPartType,
+      labor_units_aw: laborUnitsAw,
+      vehicle_class: vehicleClass,
+      validation_warnings: validationWarnings,
+      is_special_service: isSpecial
     };
   }
   
@@ -459,7 +657,12 @@ async function normalizePosition(
     normalized_material_name: normalized && !useService ? bestMaterialMatch.item?.name || null : null,
     confidence_score: bestScore,
     normalization_status: normalized ? 'normalized' : 'unmatched',
-    matching_keywords: matchedKeywords
+    matching_keywords: matchedKeywords,
+    kfz_part_type: kfzPartType,
+    labor_units_aw: laborUnitsAw,
+    vehicle_class: vehicleClass,
+    validation_warnings: validationWarnings,
+    is_special_service: isSpecial
   };
   
   // Step 5: Learn from this normalization

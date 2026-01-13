@@ -30,35 +30,19 @@ interface AnalysisResult {
     marktpreis_durchschnitt?: number;
     abweichung_prozent?: number;
     gewerk_name?: string;
-    // Neue Felder fuer Bewertungs-Engine
+    // Bewertungs-Engine Felder
     einordnung_stufe?: string;
     einordnung_begruendung?: string;
     datengrundlage?: string;
-    unsicherheitshinweis?: string;
-    datenquelle?: string;
-    interne_vergleiche?: number;
+    // Phase 4: Validierungs-Flags
+    ist_sonderleistung?: boolean;
+    validierungshinweise?: string[];
   }>;
   gesamtpreis: number;
   plausibility_score: number;
   analysis_summary: string;
   handwerker_firma?: string;
   titel?: string;
-}
-
-interface EvaluationResult {
-  evaluation_level: string;
-  evaluation_reason: string;
-  data_basis_description: string;
-  uncertainty_note?: string;
-  data_source: string;
-  internal_count: number;
-  external_source_name?: string;
-  statistics?: {
-    quartile_1: number;
-    median: number;
-    quartile_3: number;
-  };
-  deviation_percent: number | null;
 }
 
 // Mapping von alten Status zu neuen Bewertungsstufen
@@ -77,13 +61,47 @@ function mapStatusToEvaluationLevel(status: string, abweichungProzent?: number):
   }
 }
 
+// Phase 4: Sonderleistungen erkennen
+function isSpecialService(text: string): boolean {
+  const specialKeywords = [
+    'notdienst', 'notfall', 'sofort', 'express', 'eilauftrag', 'wochenende',
+    'feiertag', 'nacht', 'sonderanfertigung', 'einzelstueck', 'einzelstück',
+    'spezialanfertigung', 'massanfertigung', 'maßanfertigung', 'unikat'
+  ];
+  const lowerText = text.toLowerCase();
+  return specialKeywords.some(kw => lowerText.includes(kw));
+}
+
+// Phase 4: Position validieren
+function validatePosition(pos: Position): string[] {
+  const warnings: string[] = [];
+  
+  if (!pos.menge && pos.menge !== 0) {
+    warnings.push('Keine Mengenangabe');
+  }
+  
+  if (!pos.einheit) {
+    warnings.push('Keine Einheit');
+  }
+  
+  if (!pos.einzelpreis && pos.einzelpreis !== 0) {
+    warnings.push('Kein Einzelpreis');
+  }
+  
+  if (pos.beschreibung && pos.beschreibung.length < 5) {
+    warnings.push('Beschreibung sehr kurz');
+  }
+  
+  return warnings;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { angebotId, extractedText, extractedPositionen, fileBase64, fileType, plz, guestMode } = await req.json();
+    const { angebotId, extractedText, extractedPositionen, fileBase64, fileType, plz, guestMode, serviceDomain } = await req.json();
     
     console.log("Received request:", { 
       hasAngebotId: !!angebotId, 
@@ -92,7 +110,8 @@ Deno.serve(async (req) => {
       hasFileBase64: !!fileBase64,
       fileType: fileType || "none",
       plz: plz || "none",
-      guestMode: !!guestMode
+      guestMode: !!guestMode,
+      serviceDomain: serviceDomain || "handwerk"
     });
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -117,8 +136,11 @@ Deno.serve(async (req) => {
     const { data: gewerke } = await supabase.from("gewerke").select("*");
     const gewerkeList = gewerke?.map(g => g.name).join(", ") || "";
 
-    // Neues System-Prompt gemaess Bewertungs-Charta
-    const systemPrompt = `Du bist ein Experte für die Analyse von Handwerker-Angeboten in Deutschland.
+    // Determine if this is automotive/Kfz
+    const isKfz = serviceDomain === 'werkstatt' || serviceDomain === 'kfz';
+    
+    // Enhanced system prompt with Kfz support
+    const systemPrompt = `Du bist ein Experte für die Analyse von ${isKfz ? 'Kfz-Werkstatt-Rechnungen und -Angeboten' : 'Handwerker-Angeboten'} in Deutschland.
 
 DEINE AUFGABE:
 1. Extrahiere ALLE Positionen des Angebots vollständig
@@ -131,6 +153,18 @@ BEWERTUNGSSTUFEN (verbindlich, exklusiv):
 - "auffaellig_hoch": Preis liegt ≥30% über dem regionalen Vergleich
 - "auffaellig_niedrig": Preis liegt ≥25% unter dem regionalen Vergleich
 - "nicht_einordenbar": Keine ausreichenden Vergleichsdaten verfügbar
+
+${isKfz ? `
+KFZ-SPEZIFISCHE REGELN:
+- Ersatzteile klassifizieren als: OEM (Original), Marken-Aftermarket, oder No-Name
+- Arbeitswerte (AW) relativ vergleichen, nicht absolute Stundensätze
+- Fahrzeugklasse berücksichtigen (Kleinwagen, Mittelklasse, Oberklasse, Premium)
+- Bei Ersatzteilen: Teile-Qualität in Bewertung einbeziehen
+` : ''}
+
+SONDERLEISTUNGEN (nicht normal bewertbar):
+- Notdienst / Eilauftrag / Wochenende / Feiertag → "nicht_einordenbar" + Hinweis
+- Sonderanfertigung / Einzelstück / Maßanfertigung → "nicht_einordenbar" + Hinweis
 
 GRUNDPRINZIPIEN:
 - Keine Kauf- oder Auftragsempfehlungen
@@ -154,7 +188,7 @@ Für jede Position gib auch die alte "status" Ampelfarbe an für Rückwärtskomp
     
     if (fileBase64 && fileType) {
       console.log("Using Vision mode for document analysis");
-      const textInstruction = `Analysiere dieses Handwerker-Angebot im Detail. 
+      const textInstruction = `Analysiere dieses ${isKfz ? 'Kfz-Werkstatt-Dokument' : 'Handwerker-Angebot'} im Detail. 
 Extrahiere ALLE Positionen mit:
 - Beschreibung der Leistung
 - Material (falls angegeben)
@@ -170,9 +204,9 @@ ${plz ? `PLZ/Region: ${plz}` : ""}`;
         { type: "image_url", image_url: { url: fileBase64 } }
       ];
     } else if (extractedPositionen) {
-      userMessageContent = `Analysiere diese Angebotspositionen:\n${JSON.stringify(extractedPositionen, null, 2)}`;
+      userMessageContent = `Analysiere diese ${isKfz ? 'Werkstatt-' : 'Angebots'}positionen:\n${JSON.stringify(extractedPositionen, null, 2)}`;
     } else {
-      userMessageContent = `Analysiere diesen Angebotstext und extrahiere alle Positionen:\n${extractedText}`;
+      userMessageContent = `Analysiere diesen ${isKfz ? 'Werkstatt-Beleg' : 'Angebotstext'} und extrahiere alle Positionen:\n${extractedText}`;
     }
 
     console.log("Sending to AI Gateway...");
@@ -194,12 +228,12 @@ ${plz ? `PLZ/Region: ${plz}` : ""}`;
             type: "function",
             function: {
               name: "analyze_angebot",
-              description: "Analysiert ein Handwerker-Angebot und gibt strukturierte Bewertung zurück",
+              description: "Analysiert ein Handwerker-Angebot oder Kfz-Werkstatt-Dokument und gibt strukturierte Bewertung zurück",
               parameters: {
                 type: "object",
                 properties: {
                   titel: { type: "string", description: "Titel/Bezeichnung des Angebots" },
-                  handwerker_firma: { type: "string", description: "Name der Handwerkerfirma falls erkennbar" },
+                  handwerker_firma: { type: "string", description: "Name der Handwerkerfirma/Werkstatt falls erkennbar" },
                   positionen: {
                     type: "array",
                     items: {
@@ -220,7 +254,7 @@ ${plz ? `PLZ/Region: ${plz}` : ""}`;
                         marktpreis_durchschnitt: { type: "number" },
                         abweichung_prozent: { type: "number" },
                         gewerk_name: { type: "string" },
-                        // Neue Bewertungs-Engine Felder
+                        // Bewertungs-Engine Felder
                         einordnung_stufe: { 
                           type: "string", 
                           enum: ["im_regionalen_rahmen", "leicht_ueber_vergleich", "auffaellig_hoch", "auffaellig_niedrig", "nicht_einordenbar"],
@@ -275,7 +309,7 @@ ${plz ? `PLZ/Region: ${plz}` : ""}`;
 
     const analysisResult: AnalysisResult = JSON.parse(toolCall.function.arguments);
 
-    // Ergänze fehlende Bewertungsfelder
+    // Phase 4: Nachbearbeitung - Validierung und Sonderleistungen
     analysisResult.positionen = analysisResult.positionen.map(pos => {
       // Falls einordnung_stufe fehlt, aus status ableiten
       if (!pos.einordnung_stufe) {
@@ -290,9 +324,30 @@ ${plz ? `PLZ/Region: ${plz}` : ""}`;
       // Datengrundlage ergänzen wenn nicht vorhanden
       if (!pos.datengrundlage) {
         if (pos.marktpreis_durchschnitt) {
-          pos.datengrundlage = "Referenz: Marktdaten, bundesweit, letzte 12 Monate";
+          pos.datengrundlage = "Die Position wurde auf Basis aktuell verfügbarer Vergleichsdaten eingeordnet.";
         } else {
-          pos.datengrundlage = "Keine Vergleichsdaten verfügbar";
+          pos.datengrundlage = "Einordnung auf Basis allgemeiner Marktdaten";
+        }
+      }
+      
+      // Phase 4: Sonderleistung erkennen
+      if (isSpecialService(pos.beschreibung)) {
+        pos.ist_sonderleistung = true;
+        pos.einordnung_stufe = "nicht_einordenbar";
+        pos.einordnung_begruendung = "Sonderleistung (z.B. Notdienst, Eilauftrag) - keine Vergleichsbasis vorhanden.";
+      }
+      
+      // Phase 4: Validierung
+      const validationWarnings = validatePosition(pos);
+      if (validationWarnings.length > 0) {
+        pos.validierungshinweise = validationWarnings;
+        
+        // Bei unvollständigen Positionen ggf. Bewertung anpassen
+        if (validationWarnings.includes('Keine Mengenangabe') || validationWarnings.includes('Kein Einzelpreis')) {
+          if (!pos.ist_sonderleistung) {
+            pos.einordnung_stufe = "nicht_einordenbar";
+            pos.einordnung_begruendung = "Position aufgrund fehlender Angaben nicht bewertbar.";
+          }
         }
       }
       
@@ -318,7 +373,7 @@ ${plz ? `PLZ/Region: ${plz}` : ""}`;
       const { data: gewerkeData } = await supabase.from("gewerke").select("id, name");
       const gewerkeMap = new Map(gewerkeData?.map(g => [g.name.toLowerCase(), g.id]) || []);
 
-      // Insert positions mit neuen Bewertungsfeldern
+      // Insert positions mit neuen Bewertungsfeldern (ohne deprecated fields)
       const positionenToInsert = analysisResult.positionen.map((pos, idx) => ({
         angebot_id: angebotId,
         position_nummer: idx + 1,
@@ -340,9 +395,6 @@ ${plz ? `PLZ/Region: ${plz}` : ""}`;
         einordnung_stufe: pos.einordnung_stufe,
         einordnung_begruendung: pos.einordnung_begruendung,
         datengrundlage: pos.datengrundlage,
-        unsicherheitshinweis: pos.unsicherheitshinweis,
-        datenquelle: pos.datenquelle || "external_only",
-        interne_vergleiche: pos.interne_vergleiche || 0,
       }));
 
       await supabase.from("positionen").insert(positionenToInsert);

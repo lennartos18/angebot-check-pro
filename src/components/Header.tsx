@@ -1,118 +1,117 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FileCheck, Menu, X } from "lucide-react";
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { useNavigate } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
 
 interface HeaderProps {
   onUploadClick?: () => void;
 }
 
 export function Header({ onUploadClick }: HeaderProps) {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const navigate = useNavigate();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  const handleLoginClick = () => {
-    navigate("/auth");
-  };
-
-  const handleUploadClick = () => {
-    if (onUploadClick) {
-      onUploadClick();
-    }
-    setMobileMenuOpen(false);
+  const scrollToSection = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+    setIsMenuOpen(false);
   };
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-lg border-b border-border">
+    <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-md border-b">
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <a href="/" className="flex items-center gap-2 group">
-            <div className="w-9 h-9 rounded-lg gradient-hero flex items-center justify-center shadow-md group-hover:shadow-lg transition-shadow">
-              <FileCheck className="w-5 h-5 text-primary-foreground" />
+          <div className="flex items-center gap-2">
+            <div className="h-9 w-9 bg-primary rounded-lg flex items-center justify-center">
+              <FileCheck className="h-5 w-5 text-white" />
             </div>
-            <span className="font-bold text-lg text-foreground">
-              Angebots<span className="text-primary">Check</span>
-            </span>
-          </a>
+            <span className="text-xl font-bold text-foreground">AngebotsCheck</span>
+          </div>
 
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center gap-8">
-            <a href="#wie-es-funktioniert" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-              So funktioniert's
-            </a>
-            <a href="#vorteile" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+            <button
+              onClick={() => scrollToSection("demo")}
+              className="text-muted-foreground hover:text-foreground transition-colors text-sm"
+            >
+              Demo
+            </button>
+            <button
+              onClick={() => scrollToSection("features")}
+              className="text-muted-foreground hover:text-foreground transition-colors text-sm"
+            >
               Vorteile
-            </a>
-            <a href="#preise" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-              Preise
-            </a>
+            </button>
+            <button
+              onClick={() => scrollToSection("faq")}
+              className="text-muted-foreground hover:text-foreground transition-colors text-sm"
+            >
+              FAQ
+            </button>
           </nav>
 
           {/* Desktop CTA */}
           <div className="hidden md:flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={handleLoginClick}>
-              Anmelden
-            </Button>
-            <Button size="sm" onClick={handleUploadClick}>
+            <Button
+              onClick={onUploadClick}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
               Angebot prüfen
             </Button>
           </div>
 
           {/* Mobile Menu Button */}
           <button
-            className="md:hidden p-2 text-foreground"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="md:hidden p-2"
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
           >
-            {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            {isMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
           </button>
         </div>
-      </div>
 
-      {/* Mobile Menu */}
-      <AnimatePresence>
-        {mobileMenuOpen && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="md:hidden bg-background border-b border-border"
-          >
-            <nav className="container mx-auto px-4 py-4 flex flex-col gap-4">
-              <a
-                href="#wie-es-funktioniert"
-                className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors py-2"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                So funktioniert's
-              </a>
-              <a
-                href="#vorteile"
-                className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors py-2"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                Vorteile
-              </a>
-              <a
-                href="#preise"
-                className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors py-2"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                Preise
-              </a>
-              <div className="flex flex-col gap-2 pt-2 border-t border-border">
-                <Button variant="ghost" className="justify-start" onClick={handleLoginClick}>
-                  Anmelden
-                </Button>
-                <Button className="justify-start" onClick={handleUploadClick}>
-                  Angebot prüfen
-                </Button>
-              </div>
-            </nav>
-          </motion.div>
-        )}
-      </AnimatePresence>
+        {/* Mobile Menu */}
+        <AnimatePresence>
+          {isMenuOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="md:hidden border-t"
+            >
+              <nav className="flex flex-col py-4 gap-2">
+                <button
+                  onClick={() => scrollToSection("demo")}
+                  className="px-4 py-2 text-left hover:bg-muted rounded-lg transition-colors"
+                >
+                  Demo
+                </button>
+                <button
+                  onClick={() => scrollToSection("features")}
+                  className="px-4 py-2 text-left hover:bg-muted rounded-lg transition-colors"
+                >
+                  Vorteile
+                </button>
+                <button
+                  onClick={() => scrollToSection("faq")}
+                  className="px-4 py-2 text-left hover:bg-muted rounded-lg transition-colors"
+                >
+                  FAQ
+                </button>
+                <div className="px-4 pt-2">
+                  <Button
+                    onClick={() => {
+                      onUploadClick?.();
+                      setIsMenuOpen(false);
+                    }}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700"
+                  >
+                    Angebot prüfen
+                  </Button>
+                </div>
+              </nav>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     </header>
   );
 }

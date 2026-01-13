@@ -1,32 +1,30 @@
 import { motion } from "framer-motion";
-import { Upload, Search, BarChart3, CheckCircle } from "lucide-react";
+import { Upload, Cpu, CheckCircle } from "lucide-react";
 
 const steps = [
   {
     icon: Upload,
-    title: "1. Angebot hochladen",
-    description: "Laden Sie Ihr Handwerker-Angebot als PDF oder Foto hoch. Wir extrahieren alle relevanten Positionen automatisch.",
+    title: "Hochladen",
+    description: "Bis zu 3 Dokumente per Drag & Drop hochladen. PDF, Bilder oder Excel.",
+    color: "bg-blue-500",
   },
   {
-    icon: Search,
-    title: "2. KI-Analyse",
-    description: "Unsere KI vergleicht jede Position mit unserer Datenbank regionaler Preise und erkennt Auffälligkeiten.",
-  },
-  {
-    icon: BarChart3,
-    title: "3. Ampelbewertung",
-    description: "Jede Position erhält einen Score: Grün (plausibel), Gelb (prüfen) oder Rot (auffällig).",
+    icon: Cpu,
+    title: "Analyse",
+    description: "KI prüft jede Position anhand regionaler Vergleichsdaten.",
+    color: "bg-amber-500",
   },
   {
     icon: CheckCircle,
-    title: "4. Handeln",
-    description: "Nutzen Sie unsere Hinweise für Verhandlungen oder vergleichen Sie mit weiteren Angeboten.",
+    title: "Ergebnis",
+    description: "Ampelbewertung sofort sichtbar. Optional: Detailreport für 2,99 €.",
+    color: "bg-emerald-500",
   },
 ];
 
 export function HowItWorksSection() {
   return (
-    <section id="wie-es-funktioniert" className="py-20 sm:py-28 bg-muted/50">
+    <section className="py-20 bg-background">
       <div className="container mx-auto px-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -35,37 +33,45 @@ export function HowItWorksSection() {
           transition={{ duration: 0.5 }}
           className="text-center mb-16"
         >
-          <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-4">
+          <h2 className="text-3xl font-bold text-foreground mb-4">
             So funktioniert's
           </h2>
-          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            In nur 4 Schritten von der Unsicherheit zur Transparenz
+          <p className="text-muted-foreground max-w-2xl mx-auto">
+            In drei einfachen Schritten zur Einordnung Ihres Angebots
           </p>
         </motion.div>
 
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-8">
+        <div className="grid md:grid-cols-3 gap-8 max-w-4xl mx-auto">
           {steps.map((step, index) => (
             <motion.div
-              key={step.title}
+              key={index}
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: index * 0.1 }}
+              transition={{ duration: 0.5, delay: index * 0.15 }}
               className="relative"
             >
               {/* Connector Line */}
               {index < steps.length - 1 && (
-                <div className="hidden lg:block absolute top-10 left-[60%] w-[80%] h-0.5 bg-gradient-to-r from-primary/30 to-primary/10" />
+                <div className="hidden md:block absolute top-12 left-1/2 w-full h-0.5 bg-border" />
               )}
-              
-              <div className="bg-card rounded-xl p-6 shadow-card hover:shadow-card-hover transition-shadow h-full border border-border/50">
-                <div className="w-14 h-14 rounded-xl gradient-hero flex items-center justify-center mb-5 shadow-md">
-                  <step.icon className="w-7 h-7 text-primary-foreground" />
+
+              <div className="relative bg-card rounded-xl p-6 border shadow-sm hover:shadow-md transition-shadow text-center">
+                {/* Step Number */}
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-8 h-8 bg-background border-2 border-primary rounded-full flex items-center justify-center text-sm font-bold text-primary">
+                  {index + 1}
                 </div>
-                <h3 className="text-lg font-bold text-foreground mb-3">
+
+                {/* Icon */}
+                <div className={`w-16 h-16 ${step.color} rounded-xl flex items-center justify-center mx-auto mb-4 mt-2`}>
+                  <step.icon className="h-8 w-8 text-white" />
+                </div>
+
+                {/* Content */}
+                <h3 className="text-xl font-semibold text-foreground mb-2">
                   {step.title}
                 </h3>
-                <p className="text-muted-foreground text-sm leading-relaxed">
+                <p className="text-muted-foreground text-sm">
                   {step.description}
                 </p>
               </div>

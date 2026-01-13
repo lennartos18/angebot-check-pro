@@ -49,17 +49,26 @@ export function HeroSection({ onUploadClick }: HeroSectionProps) {
 
             {/* Headline */}
             <div className="space-y-4">
+              <motion.p
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.25 }}
+                className="text-sm font-semibold text-primary uppercase tracking-wide"
+              >
+                Für Handwerker-Angebote & KFZ-Werkstatt-Rechnungen
+              </motion.p>
+
               <motion.h1
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.3 }}
                 className="text-4xl md:text-5xl lg:text-6xl font-bold text-foreground leading-tight"
               >
-                100% kostenlos prüfen –{" "}
+                Angebot erhalten?{" "}
                 <span className="text-primary">
-                  sofort sehen
+                  Sofort prüfen
                 </span>
-                , wie Ihr Angebot einzuordnen ist
+                , ob der Preis fair ist.
               </motion.h1>
 
               <motion.p
@@ -68,8 +77,8 @@ export function HeroSection({ onUploadClick }: HeroSectionProps) {
                 transition={{ delay: 0.4 }}
                 className="text-lg md:text-xl text-muted-foreground max-w-xl"
               >
-                Bis zu 3 Angebote gleichzeitig hochladen. 
-                Die Ampel zeigt auf einen Blick, wo Handlungsbedarf besteht.
+                Egal ob Dachdecker, Elektriker, Sanitär oder Ihre KFZ-Werkstatt – 
+                laden Sie bis zu 3 Angebote hoch und sehen Sie sofort, welche Positionen auffällig sind.
               </motion.p>
             </div>
 

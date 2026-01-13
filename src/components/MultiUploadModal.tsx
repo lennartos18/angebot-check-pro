@@ -3,7 +3,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
-import { Upload, X, FileText, Image, FileSpreadsheet, Loader2, CheckCircle, AlertCircle, Clock } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { Upload, X, FileText, Image, FileSpreadsheet, Loader2, CheckCircle, AlertCircle, Clock, Wrench, Car } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useGuestSession, GuestDocument } from '@/hooks/useGuestSession';
 import { supabase } from '@/integrations/supabase/client';
@@ -21,6 +23,8 @@ interface FileWithProgress {
   status: 'pending' | 'uploading' | 'processing' | 'complete' | 'error';
   error?: string;
 }
+
+type DocumentCategory = 'handwerk' | 'kfz';
 
 const MAX_FILES = 3;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -55,6 +59,7 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [overallProgress, setOverallProgress] = useState(0);
   const [currentStep, setCurrentStep] = useState<string>('');
+  const [category, setCategory] = useState<DocumentCategory>('handwerk');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -68,6 +73,7 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
     setOverallProgress(0);
     setCurrentStep('');
     setIsDragOver(false);
+    setCategory('handwerk');
   }, []);
 
   const handleClose = useCallback(() => {
@@ -237,7 +243,8 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
             stadt: stadt || undefined,
             guestMode: true,
             documentIndex: i,
-            totalDocuments: files.length
+            totalDocuments: files.length,
+            category: category // Pass category to backend
           }
         });
 
@@ -330,6 +337,35 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
         </DialogHeader>
 
         <div className="space-y-6 py-4">
+          {/* Category Switch */}
+          <div className="bg-muted/50 rounded-xl p-4 space-y-3">
+            <Label className="text-sm font-medium text-foreground">
+              Um welche Art von Dokumenten handelt es sich?
+            </Label>
+            <div className="flex items-center gap-4">
+              <div className={`flex items-center gap-2 transition-colors ${category === 'handwerk' ? 'text-primary font-semibold' : 'text-muted-foreground'}`}>
+                <Wrench className="w-5 h-5" />
+                <span>Handwerk</span>
+              </div>
+              
+              <Switch
+                checked={category === 'kfz'}
+                onCheckedChange={(checked) => setCategory(checked ? 'kfz' : 'handwerk')}
+                className="data-[state=checked]:bg-primary"
+              />
+              
+              <div className={`flex items-center gap-2 transition-colors ${category === 'kfz' ? 'text-primary font-semibold' : 'text-muted-foreground'}`}>
+                <Car className="w-5 h-5" />
+                <span>KFZ-Werkstatt</span>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {category === 'handwerk' 
+                ? 'Für Angebote von Dachdeckern, Elektrikern, Sanitär, Malern, etc.' 
+                : 'Für Rechnungen und Kostenvoranschläge von KFZ-Werkstätten'}
+            </p>
+          </div>
+
           {/* Session Timer */}
           {session && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">

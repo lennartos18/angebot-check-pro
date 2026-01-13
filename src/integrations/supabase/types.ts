@@ -242,6 +242,48 @@ export type Database = {
           },
         ]
       }
+      external_marktpreise_cache: {
+        Row: {
+          created_at: string | null
+          expires_at: string | null
+          gewerk: string | null
+          id: string
+          kategorie: string | null
+          preis_durchschnitt: number | null
+          preis_max: number | null
+          preis_min: number | null
+          quellen: string[] | null
+          raw_data: Json | null
+          suchbegriff: string
+        }
+        Insert: {
+          created_at?: string | null
+          expires_at?: string | null
+          gewerk?: string | null
+          id?: string
+          kategorie?: string | null
+          preis_durchschnitt?: number | null
+          preis_max?: number | null
+          preis_min?: number | null
+          quellen?: string[] | null
+          raw_data?: Json | null
+          suchbegriff: string
+        }
+        Update: {
+          created_at?: string | null
+          expires_at?: string | null
+          gewerk?: string | null
+          id?: string
+          kategorie?: string | null
+          preis_durchschnitt?: number | null
+          preis_max?: number | null
+          preis_min?: number | null
+          quellen?: string[] | null
+          raw_data?: Json | null
+          suchbegriff?: string
+        }
+        Relationships: []
+      }
       external_reference_data: {
         Row: {
           bundesland: string | null

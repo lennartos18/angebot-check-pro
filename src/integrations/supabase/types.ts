@@ -93,6 +93,7 @@ export type Database = {
       }
       document_positions: {
         Row: {
+          comparison_eligible: boolean | null
           created_at: string | null
           document_id: string
           id: string
@@ -113,6 +114,7 @@ export type Database = {
           unit_price: number | null
         }
         Insert: {
+          comparison_eligible?: boolean | null
           created_at?: string | null
           document_id: string
           id?: string
@@ -133,6 +135,7 @@ export type Database = {
           unit_price?: number | null
         }
         Update: {
+          comparison_eligible?: boolean | null
           created_at?: string | null
           document_id?: string
           id?: string
@@ -235,6 +238,84 @@ export type Database = {
             columns: ["region_cluster_id"]
             isOneToOne: false
             referencedRelation: "region_clusters"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      external_reference_data: {
+        Row: {
+          bundesland: string | null
+          created_at: string | null
+          id: string
+          is_active: boolean | null
+          normalized_material_id: string | null
+          normalized_service_id: string | null
+          price_max: number | null
+          price_median: number | null
+          price_min: number | null
+          region_type: string | null
+          service_domain: string
+          source_date: string
+          source_name: string
+          source_type: string
+          source_url: string | null
+          unit: string | null
+          valid_from: string
+          valid_until: string
+        }
+        Insert: {
+          bundesland?: string | null
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          normalized_material_id?: string | null
+          normalized_service_id?: string | null
+          price_max?: number | null
+          price_median?: number | null
+          price_min?: number | null
+          region_type?: string | null
+          service_domain: string
+          source_date: string
+          source_name: string
+          source_type: string
+          source_url?: string | null
+          unit?: string | null
+          valid_from?: string
+          valid_until: string
+        }
+        Update: {
+          bundesland?: string | null
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          normalized_material_id?: string | null
+          normalized_service_id?: string | null
+          price_max?: number | null
+          price_median?: number | null
+          price_min?: number | null
+          region_type?: string | null
+          service_domain?: string
+          source_date?: string
+          source_name?: string
+          source_type?: string
+          source_url?: string | null
+          unit?: string | null
+          valid_from?: string
+          valid_until?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "external_reference_data_normalized_material_id_fkey"
+            columns: ["normalized_material_id"]
+            isOneToOne: false
+            referencedRelation: "normalized_materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "external_reference_data_normalized_service_id_fkey"
+            columns: ["normalized_service_id"]
+            isOneToOne: false
+            referencedRelation: "normalized_services"
             referencedColumns: ["id"]
           },
         ]
@@ -432,12 +513,17 @@ export type Database = {
           angebot_id: string
           beschreibung: string
           created_at: string | null
+          datengrundlage: string | null
+          datenquelle: string | null
           einheit: string | null
+          einordnung_begruendung: string | null
+          einordnung_stufe: string | null
           einzelpreis: number | null
           gesamtpreis: number | null
           gewerk_id: string | null
           hinweis: string | null
           id: string
+          interne_vergleiche: number | null
           marktpreis_durchschnitt: number | null
           marktpreis_max: number | null
           marktpreis_min: number | null
@@ -446,18 +532,24 @@ export type Database = {
           plausibility_score: number | null
           position_nummer: number | null
           status: string | null
+          unsicherheitshinweis: string | null
         }
         Insert: {
           abweichung_prozent?: number | null
           angebot_id: string
           beschreibung: string
           created_at?: string | null
+          datengrundlage?: string | null
+          datenquelle?: string | null
           einheit?: string | null
+          einordnung_begruendung?: string | null
+          einordnung_stufe?: string | null
           einzelpreis?: number | null
           gesamtpreis?: number | null
           gewerk_id?: string | null
           hinweis?: string | null
           id?: string
+          interne_vergleiche?: number | null
           marktpreis_durchschnitt?: number | null
           marktpreis_max?: number | null
           marktpreis_min?: number | null
@@ -466,18 +558,24 @@ export type Database = {
           plausibility_score?: number | null
           position_nummer?: number | null
           status?: string | null
+          unsicherheitshinweis?: string | null
         }
         Update: {
           abweichung_prozent?: number | null
           angebot_id?: string
           beschreibung?: string
           created_at?: string | null
+          datengrundlage?: string | null
+          datenquelle?: string | null
           einheit?: string | null
+          einordnung_begruendung?: string | null
+          einordnung_stufe?: string | null
           einzelpreis?: number | null
           gesamtpreis?: number | null
           gewerk_id?: string | null
           hinweis?: string | null
           id?: string
+          interne_vergleiche?: number | null
           marktpreis_durchschnitt?: number | null
           marktpreis_max?: number | null
           marktpreis_min?: number | null
@@ -486,6 +584,7 @@ export type Database = {
           plausibility_score?: number | null
           position_nummer?: number | null
           status?: string | null
+          unsicherheitshinweis?: string | null
         }
         Relationships: [
           {
@@ -500,6 +599,91 @@ export type Database = {
             columns: ["gewerk_id"]
             isOneToOne: false
             referencedRelation: "gewerke"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      price_evaluations: {
+        Row: {
+          created_at: string | null
+          data_basis_description: string
+          data_source: string
+          deviation_percent: number | null
+          evaluation_level: string
+          evaluation_reason: string
+          external_reference_used: boolean | null
+          external_source_name: string | null
+          id: string
+          internal_comparison_count: number | null
+          median: number | null
+          normalized_material_id: string | null
+          normalized_service_id: string | null
+          position_id: string
+          quartile_1: number | null
+          quartile_3: number | null
+          region_cluster_id: string | null
+          uncertainty_note: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          data_basis_description: string
+          data_source: string
+          deviation_percent?: number | null
+          evaluation_level: string
+          evaluation_reason: string
+          external_reference_used?: boolean | null
+          external_source_name?: string | null
+          id?: string
+          internal_comparison_count?: number | null
+          median?: number | null
+          normalized_material_id?: string | null
+          normalized_service_id?: string | null
+          position_id: string
+          quartile_1?: number | null
+          quartile_3?: number | null
+          region_cluster_id?: string | null
+          uncertainty_note?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          data_basis_description?: string
+          data_source?: string
+          deviation_percent?: number | null
+          evaluation_level?: string
+          evaluation_reason?: string
+          external_reference_used?: boolean | null
+          external_source_name?: string | null
+          id?: string
+          internal_comparison_count?: number | null
+          median?: number | null
+          normalized_material_id?: string | null
+          normalized_service_id?: string | null
+          position_id?: string
+          quartile_1?: number | null
+          quartile_3?: number | null
+          region_cluster_id?: string | null
+          uncertainty_note?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "price_evaluations_normalized_material_id_fkey"
+            columns: ["normalized_material_id"]
+            isOneToOne: false
+            referencedRelation: "normalized_materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "price_evaluations_normalized_service_id_fkey"
+            columns: ["normalized_service_id"]
+            isOneToOne: false
+            referencedRelation: "normalized_services"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "price_evaluations_region_cluster_id_fkey"
+            columns: ["region_cluster_id"]
+            isOneToOne: false
+            referencedRelation: "region_clusters"
             referencedColumns: ["id"]
           },
         ]

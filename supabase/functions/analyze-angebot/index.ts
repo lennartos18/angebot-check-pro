@@ -55,13 +55,32 @@ serve(async (req) => {
     
     // Support both field naming conventions
     const documentContent = body.documentContent || body.extractedText || null;
-    const imageBase64 = body.imageBase64 || body.fileBase64 || null;
-    const mimeType = body.mimeType || body.fileType || 'image/jpeg';
+    let imageBase64 = body.imageBase64 || body.fileBase64 || null;
     const documentType = body.documentType || 'Angebot';
     const plz = body.plz || '';
     const stadt = body.stadt || '';
     
-    console.log('imageBase64 present:', !!imageBase64, 'length:', imageBase64?.length || 0);
+    // Detect mimeType from Data-URL or use provided value
+    let detectedMimeType = body.mimeType || body.fileType || 'image/jpeg';
+    const originalBase64 = body.imageBase64 || body.fileBase64 || '';
+    
+    // Extract mimeType from Data-URL if present (e.g., "data:image/webp;base64,...")
+    if (originalBase64.startsWith('data:')) {
+      const match = originalBase64.match(/data:([^;]+);/);
+      if (match) {
+        detectedMimeType = match[1];
+      }
+    }
+    
+    // WICHTIG: Data-URL Prefix entfernen falls vorhanden
+    // "data:image/webp;base64,XXXXX" -> "XXXXX"
+    if (imageBase64 && imageBase64.includes(',')) {
+      imageBase64 = imageBase64.split(',')[1];
+    }
+    
+    console.log('Original base64 starts with:', originalBase64.substring(0, 50));
+    console.log('Clean imageBase64 present:', !!imageBase64, 'length:', imageBase64?.length || 0);
+    console.log('Detected mimeType:', detectedMimeType);
     console.log('documentContent present:', !!documentContent);
 
     if (!documentContent && !imageBase64) {
@@ -171,7 +190,7 @@ Antworte IMMER als valides JSON mit dieser Struktur:
             {
               type: 'image_url',
               image_url: {
-                url: `data:${mimeType || 'image/jpeg'};base64,${imageBase64}`
+                url: `data:${detectedMimeType};base64,${imageBase64}`
               }
             },
             {

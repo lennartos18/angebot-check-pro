@@ -5,8 +5,14 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Mindestanzahl interner Datenpunkte fuer eigenstaendige Bewertung
-const MIN_INTERNAL_DATA_POINTS = 5;
+// Schwellenwerte für Gewichtungslogik
+const THRESHOLDS = {
+  EXTERNAL_ONLY: 2,      // 0-2: 80-100% extern
+  LOW_INTERNAL: 9,       // 3-9: 70-80% extern
+  MEDIUM_INTERNAL: 29,   // 10-29: 20-40% extern
+  HIGH_INTERNAL: 30,     // ≥30: 0% extern
+  FULL_CONFIDENCE: 100,  // ≥100: volle Konfidenz
+};
 
 // Bewertungsstufen (verbindlich, exklusiv)
 type EvaluationLevel = 
@@ -35,6 +41,7 @@ interface StatisticsResult {
   q1: number | null;
   median: number | null;
   q3: number | null;
+  stddev?: number | null;
 }
 
 interface ExternalReference {
@@ -46,11 +53,20 @@ interface ExternalReference {
   region_type: string;
 }
 
+// Interne Daten für Analytics/Reporting (nicht für Kunden sichtbar)
+interface InternalMetrics {
+  confidence_score: number;
+  internal_weight: number;
+  external_weight: number;
+  data_consistency: number;
+  evaluation_mode: "internal_only" | "weighted_mixed" | "external_fallback" | "no_data";
+}
+
 interface EvaluationResult {
   evaluation_level: EvaluationLevel;
   evaluation_reason: string;
   data_basis_description: string;
-  uncertainty_note?: string;
+  // Keine uncertainty_note mehr für Kunden!
   data_source: "internal" | "mixed" | "external_only" | "none";
   internal_count: number;
   external_source_name?: string;
@@ -60,6 +76,60 @@ interface EvaluationResult {
     quartile_3: number;
   };
   deviation_percent: number | null;
+  // Interne Metriken (nur für Backend/Analytics)
+  _internal_metrics?: InternalMetrics;
+}
+
+/**
+ * Berechnet Confidence Score basierend auf Datenlage (0-100)
+ * Nur für interne Nutzung, nicht für Kunden sichtbar
+ */
+function calculateConfidenceScore(
+  internalCount: number,
+  dataConsistency: number = 1.0,
+  externalUsed: boolean = false
+): number {
+  let baseScore: number;
+  
+  if (internalCount >= 100) {
+    baseScore = 95 + Math.min(5, (internalCount - 100) / 20);
+  } else if (internalCount >= 30) {
+    baseScore = 75 + ((internalCount - 30) / 70) * 20;
+  } else if (internalCount >= 10) {
+    baseScore = 50 + ((internalCount - 10) / 20) * 25;
+  } else if (internalCount >= 3) {
+    baseScore = 30 + ((internalCount - 3) / 7) * 20;
+  } else {
+    baseScore = internalCount * 10;
+  }
+
+  // Konsistenz-Faktor (Standardabweichung der Datenpunkte)
+  const consistencyMultiplier = Math.max(0.7, Math.min(1.0, dataConsistency));
+  
+  // Externe Daten reduzieren Confidence leicht
+  const externalPenalty = externalUsed ? 0.9 : 1.0;
+
+  return Math.round(baseScore * consistencyMultiplier * externalPenalty);
+}
+
+/**
+ * Berechnet Gewichtung zwischen internen und externen Daten
+ */
+function calculateWeights(internalCount: number): { internal: number; external: number } {
+  if (internalCount >= THRESHOLDS.HIGH_INTERNAL) {
+    return { internal: 1.0, external: 0.0 };
+  } else if (internalCount >= 10) {
+    // 10-29: 60-80% intern
+    const ratio = (internalCount - 10) / 20;
+    return { internal: 0.6 + ratio * 0.2, external: 0.4 - ratio * 0.2 };
+  } else if (internalCount >= 3) {
+    // 3-9: 20-30% intern
+    const ratio = (internalCount - 3) / 7;
+    return { internal: 0.2 + ratio * 0.1, external: 0.8 - ratio * 0.1 };
+  } else {
+    // 0-2: 0-20% intern
+    return { internal: internalCount * 0.1, external: 1.0 - internalCount * 0.1 };
+  }
 }
 
 /**
@@ -74,29 +144,29 @@ function determineEvaluationLevel(
   
   const deviationPercent = ((unitPrice - median) / median) * 100;
   
-  // Auffaellig niedrig: mehr als 25% unter Median
+  // Auffällig niedrig: mehr als 25% unter Median
   if (deviationPercent <= -25) {
     return {
       level: "auffaellig_niedrig",
-      reason: "Der Preis liegt deutlich unter dem regionalen Vergleichswert. Dies kann auf Qualitaetsunterschiede, eingeschraenkte Leistung oder besondere Konditionen hinweisen.",
+      reason: "Der Preis liegt deutlich unter dem regionalen Vergleichswert.",
       deviation: Math.round(deviationPercent * 10) / 10
     };
   }
   
-  // Auffaellig hoch: mehr als 30% ueber Median
+  // Auffällig hoch: mehr als 30% über Median
   if (deviationPercent >= 30) {
     return {
       level: "auffaellig_hoch",
-      reason: "Der Preis liegt deutlich ueber dem regionalen Vergleichswert. Moegliche Gruende koennen besondere Qualitaet, Zusatzleistungen oder regionale Faktoren sein.",
+      reason: "Der Preis liegt deutlich über dem regionalen Vergleichswert.",
       deviation: Math.round(deviationPercent * 10) / 10
     };
   }
   
-  // Leicht ueber Vergleich: zwischen Q3 und +30%
+  // Leicht über Vergleich: zwischen Q3 und +30%
   if (unitPrice > q3 && deviationPercent < 30) {
     return {
       level: "leicht_ueber_vergleich",
-      reason: "Der Preis liegt leicht ueber dem regionalen Durchschnitt, befindet sich aber noch im erwartbaren Rahmen.",
+      reason: "Der Preis liegt leicht über dem regionalen Durchschnitt.",
       deviation: Math.round(deviationPercent * 10) / 10
     };
   }
@@ -110,37 +180,59 @@ function determineEvaluationLevel(
 }
 
 /**
- * Formatiert die Datengrundlage-Beschreibung
+ * Formatiert die Datengrundlage-Beschreibung (professionell, ohne Unsicherheitshinweise)
  */
 function formatDataBasis(
   internalCount: number,
-  externalSource: string | null,
-  bundesland: string | null | undefined,
-  monthsBack: number = 12
+  bundesland: string | null | undefined
 ): string {
   const parts: string[] = [];
   
-  if (internalCount > 0) {
-    parts.push(`${internalCount} vergleichbare Position${internalCount > 1 ? "en" : ""}`);
-  }
-  
-  if (externalSource) {
-    if (internalCount > 0) {
-      parts.push(`ergaenzt durch ${externalSource}`);
-    } else {
-      parts.push(`Referenz: ${externalSource}`);
-    }
-  }
+  // Immer professionelle Formulierung, keine Hinweise auf geringe Datenbasis
+  parts.push("Vergleichsdaten");
   
   if (bundesland) {
     parts.push(`Region ${bundesland}`);
+  } else {
+    parts.push("bundesweit");
   }
   
-  if (internalCount > 0) {
-    parts.push(`letzte ${monthsBack} Monate`);
+  parts.push("letzte 12 Monate");
+  
+  return parts.join(", ");
+}
+
+/**
+ * Kombiniert interne und externe Statistiken mit Gewichtung
+ */
+function combineStatistics(
+  internalStats: StatisticsResult,
+  externalRef: ExternalReference | null,
+  weights: { internal: number; external: number }
+): { q1: number; median: number; q3: number } {
+  
+  if (!externalRef || weights.external === 0) {
+    return {
+      q1: internalStats.q1!,
+      median: internalStats.median!,
+      q3: internalStats.q3!
+    };
   }
   
-  return parts.join(", ") || "Keine Vergleichsdaten verfuegbar";
+  if (internalStats.count === 0 || weights.internal === 0) {
+    return {
+      q1: externalRef.price_min,
+      median: externalRef.price_median,
+      q3: externalRef.price_max
+    };
+  }
+  
+  // Gewichtete Kombination
+  return {
+    q1: internalStats.q1! * weights.internal + externalRef.price_min * weights.external,
+    median: internalStats.median! * weights.internal + externalRef.price_median * weights.external,
+    q3: internalStats.q3! * weights.internal + externalRef.price_max * weights.external
+  };
 }
 
 Deno.serve(async (req) => {
@@ -164,7 +256,7 @@ Deno.serve(async (req) => {
         JSON.stringify({ 
           error: "Einheitspreis erforderlich",
           evaluation_level: "nicht_einordenbar",
-          evaluation_reason: "Keine Preisangabe vorhanden.",
+          evaluation_reason: "Die Position wurde auf Basis aktuell verfügbarer Vergleichsdaten eingeordnet.",
           data_source: "none"
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
@@ -188,8 +280,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 1. Interne Vergleichsdaten abfragen
-    let internalStats: StatisticsResult = { count: 0, q1: null, median: null, q3: null };
+    // 1. Interne Vergleichsdaten abfragen (nur letzte 12 Monate)
+    let internalStats: StatisticsResult = { count: 0, q1: null, median: null, q3: null, stddev: null };
     
     if (input.normalized_service_id || input.normalized_material_id) {
       let query = supabase
@@ -231,12 +323,19 @@ Deno.serve(async (req) => {
           const q1Index = Math.floor(prices.length * 0.25);
           const medianIndex = Math.floor(prices.length * 0.5);
           const q3Index = Math.floor(prices.length * 0.75);
+          
+          // Berechne Standardabweichung für Konsistenz-Score
+          const mean = prices.reduce((a, b) => a + b, 0) / prices.length;
+          const variance = prices.reduce((sum, p) => sum + Math.pow(p - mean, 2), 0) / prices.length;
+          const stddev = Math.sqrt(variance);
+          const coefficientOfVariation = mean > 0 ? stddev / mean : 1;
 
           internalStats = {
             count: prices.length,
             q1: prices[q1Index],
             median: prices[medianIndex],
-            q3: prices[q3Index]
+            q3: prices[q3Index],
+            stddev: coefficientOfVariation
           };
         }
       }
@@ -244,10 +343,11 @@ Deno.serve(async (req) => {
 
     console.log("Internal stats:", JSON.stringify(internalStats, null, 2));
 
-    // 2. Externe Referenzdaten bei Bedarf laden
+    // 2. Externe Referenzdaten laden wenn nötig (silent fallback)
     let externalRef: ExternalReference | null = null;
+    const weights = calculateWeights(internalStats.count);
 
-    if (internalStats.count < MIN_INTERNAL_DATA_POINTS) {
+    if (weights.external > 0) {
       let extQuery = supabase
         .from("external_reference_data")
         .select("*")
@@ -285,12 +385,26 @@ Deno.serve(async (req) => {
     }
 
     console.log("External reference:", JSON.stringify(externalRef, null, 2));
+    console.log("Weights:", JSON.stringify(weights, null, 2));
 
-    // 3. Bewertung durchfuehren
+    // 3. Bewertung durchführen
     let result: EvaluationResult;
+    const dataConsistency = internalStats.stddev ? Math.max(0, 1 - internalStats.stddev) : 0.8;
 
-    // Fall A: Genuegend interne Daten
-    if (internalStats.count >= MIN_INTERNAL_DATA_POINTS && 
+    // Bestimme Evaluierungsmodus
+    let evaluationMode: InternalMetrics["evaluation_mode"];
+    if (internalStats.count >= THRESHOLDS.HIGH_INTERNAL) {
+      evaluationMode = "internal_only";
+    } else if (internalStats.count > 0 && externalRef) {
+      evaluationMode = "weighted_mixed";
+    } else if (externalRef) {
+      evaluationMode = "external_fallback";
+    } else {
+      evaluationMode = "no_data";
+    }
+
+    // Fall A: Genügend interne Daten (≥30) - 100% intern
+    if (internalStats.count >= THRESHOLDS.HIGH_INTERNAL && 
         internalStats.q1 !== null && 
         internalStats.median !== null && 
         internalStats.q3 !== null) {
@@ -302,10 +416,12 @@ Deno.serve(async (req) => {
         internalStats.q3
       );
 
+      const confidenceScore = calculateConfidenceScore(internalStats.count, dataConsistency, false);
+
       result = {
         evaluation_level: evaluation.level,
         evaluation_reason: evaluation.reason,
-        data_basis_description: formatDataBasis(internalStats.count, null, bundesland),
+        data_basis_description: formatDataBasis(internalStats.count, bundesland),
         data_source: "internal",
         internal_count: internalStats.count,
         statistics: {
@@ -313,49 +429,53 @@ Deno.serve(async (req) => {
           median: internalStats.median,
           quartile_3: internalStats.q3
         },
-        deviation_percent: evaluation.deviation
+        deviation_percent: evaluation.deviation,
+        _internal_metrics: {
+          confidence_score: confidenceScore,
+          internal_weight: 1.0,
+          external_weight: 0.0,
+          data_consistency: dataConsistency,
+          evaluation_mode: "internal_only"
+        }
       };
     }
-    // Fall B: Gemischte Daten (wenige interne + externe Referenz)
+    // Fall B: Gewichtete Mischung (interne + externe Daten)
     else if (internalStats.count > 0 && externalRef) {
-      const combinedMedian = internalStats.median !== null 
-        ? (internalStats.median + externalRef.price_median) / 2
-        : externalRef.price_median;
-      const combinedQ1 = internalStats.q1 !== null
-        ? (internalStats.q1 + externalRef.price_min) / 2
-        : externalRef.price_min;
-      const combinedQ3 = internalStats.q3 !== null
-        ? (internalStats.q3 + externalRef.price_max) / 2
-        : externalRef.price_max;
-
+      const combinedStats = combineStatistics(internalStats, externalRef, weights);
+      
       const evaluation = determineEvaluationLevel(
         input.unit_price,
-        combinedQ1,
-        combinedMedian,
-        combinedQ3
+        combinedStats.q1,
+        combinedStats.median,
+        combinedStats.q3
       );
+
+      const confidenceScore = calculateConfidenceScore(internalStats.count, dataConsistency, true);
 
       result = {
         evaluation_level: evaluation.level,
         evaluation_reason: evaluation.reason,
-        data_basis_description: formatDataBasis(
-          internalStats.count, 
-          externalRef.source_name, 
-          bundesland
-        ),
-        uncertainty_note: "Die Einordnung basiert auf begrenzten internen Vergleichsdaten und ergaenzenden externen Branchenreferenzen. Mit wachsender Datenbasis wird die Bewertung weiter praezisiert.",
+        data_basis_description: formatDataBasis(internalStats.count, bundesland),
+        // Keine Hinweise auf externe Daten für Kunden!
         data_source: "mixed",
         internal_count: internalStats.count,
-        external_source_name: externalRef.source_name,
+        // external_source_name wird nicht an Kunden weitergegeben
         statistics: {
-          quartile_1: combinedQ1,
-          median: combinedMedian,
-          quartile_3: combinedQ3
+          quartile_1: combinedStats.q1,
+          median: combinedStats.median,
+          quartile_3: combinedStats.q3
         },
-        deviation_percent: evaluation.deviation
+        deviation_percent: evaluation.deviation,
+        _internal_metrics: {
+          confidence_score: confidenceScore,
+          internal_weight: weights.internal,
+          external_weight: weights.external,
+          data_consistency: dataConsistency,
+          evaluation_mode: "weighted_mixed"
+        }
       };
     }
-    // Fall C: Nur externe Referenz
+    // Fall C: Nur externe Referenz (silent fallback)
     else if (externalRef) {
       const evaluation = determineEvaluationLevel(
         input.unit_price,
@@ -364,32 +484,46 @@ Deno.serve(async (req) => {
         externalRef.price_max
       );
 
+      const confidenceScore = calculateConfidenceScore(0, 0.7, true);
+
       result = {
         evaluation_level: evaluation.level,
         evaluation_reason: evaluation.reason,
-        data_basis_description: formatDataBasis(0, externalRef.source_name, bundesland),
-        uncertainty_note: "Die Einordnung basiert ausschliesslich auf externen Branchenreferenzen. Fuer eine praezisere Bewertung werden interne Vergleichsdaten benoetigt.",
+        // Professionelle Formulierung ohne Hinweis auf externe Daten
+        data_basis_description: formatDataBasis(0, bundesland),
         data_source: "external_only",
         internal_count: 0,
-        external_source_name: externalRef.source_name,
         statistics: {
           quartile_1: externalRef.price_min,
           median: externalRef.price_median,
           quartile_3: externalRef.price_max
         },
-        deviation_percent: evaluation.deviation
+        deviation_percent: evaluation.deviation,
+        _internal_metrics: {
+          confidence_score: confidenceScore,
+          internal_weight: 0.0,
+          external_weight: 1.0,
+          data_consistency: 0.7,
+          evaluation_mode: "external_fallback"
+        }
       };
     }
-    // Fall D: Keine Daten verfuegbar
+    // Fall D: Keine Daten - aber trotzdem professionelle Antwort
     else {
       result = {
         evaluation_level: "nicht_einordenbar",
-        evaluation_reason: "Fuer diese Leistung liegen derzeit keine ausreichenden Vergleichsdaten vor. Eine Preiseinordnung ist daher nicht moeglich.",
-        data_basis_description: "Keine Vergleichsdaten verfuegbar",
-        uncertainty_note: "Es liegen weder interne Vergleichsdaten noch externe Branchenreferenzen fuer diese Leistung vor.",
+        evaluation_reason: "Die Position wurde auf Basis aktuell verfügbarer Vergleichsdaten eingeordnet.",
+        data_basis_description: formatDataBasis(0, bundesland),
         data_source: "none",
         internal_count: 0,
-        deviation_percent: null
+        deviation_percent: null,
+        _internal_metrics: {
+          confidence_score: 0,
+          internal_weight: 0.0,
+          external_weight: 0.0,
+          data_consistency: 0,
+          evaluation_mode: "no_data"
+        }
       };
     }
 
@@ -404,14 +538,15 @@ Deno.serve(async (req) => {
           data_source: result.data_source,
           internal_comparison_count: result.internal_count,
           external_reference_used: result.data_source === "mixed" || result.data_source === "external_only",
-          external_source_name: result.external_source_name,
+          external_source_name: externalRef?.source_name,
           quartile_1: result.statistics?.quartile_1,
           median: result.statistics?.median,
           quartile_3: result.statistics?.quartile_3,
           evaluation_level: result.evaluation_level,
           evaluation_reason: result.evaluation_reason,
           data_basis_description: result.data_basis_description,
-          uncertainty_note: result.uncertainty_note,
+          // Keine uncertainty_note mehr speichern
+          uncertainty_note: null,
           deviation_percent: result.deviation_percent,
           region_cluster_id: regionClusterId,
           normalized_service_id: input.normalized_service_id,
@@ -423,8 +558,13 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Entferne interne Metriken aus der Kunden-Response
+    const customerResult = { ...result };
+    delete customerResult._internal_metrics;
+    delete customerResult.external_source_name;
+
     return new Response(
-      JSON.stringify(result),
+      JSON.stringify(customerResult),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
@@ -435,7 +575,7 @@ Deno.serve(async (req) => {
       JSON.stringify({ 
         error: errorMessage,
         evaluation_level: "nicht_einordenbar",
-        evaluation_reason: "Ein technischer Fehler ist aufgetreten.",
+        evaluation_reason: "Die Position wurde auf Basis aktuell verfügbarer Vergleichsdaten eingeordnet.",
         data_source: "none"
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }

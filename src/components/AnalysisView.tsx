@@ -12,8 +12,6 @@ import {
   TrendingDown,
   Minus,
   Database,
-  ExternalLink,
-  AlertCircle,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -80,9 +78,7 @@ interface Position {
   einordnung_stufe: string | null;
   einordnung_begruendung: string | null;
   datengrundlage: string | null;
-  unsicherheitshinweis: string | null;
-  datenquelle: string | null;
-  interne_vergleiche: number | null;
+  // Keine unsicherheitshinweis/datenquelle mehr für Kunden sichtbar
 }
 
 interface Angebot {
@@ -408,49 +404,28 @@ export function AnalysisView({ angebotId, onBack }: AnalysisViewProps) {
                           <StatusBadge status={evaluationStatus} size="sm" />
                         </td>
                       </tr>
-                      {/* Detail Row mit Datengrundlage */}
+                      {/* Detail Row */}
                       <tr className="bg-muted/20">
                         <td />
                         <td colSpan={5} className="px-4 py-3">
                           <div className="space-y-2 text-xs">
-                            {/* Begruendung */}
+                            {/* Begründung */}
                             <div className="flex items-start gap-2">
                               <span className="font-medium text-foreground shrink-0">Einordnung:</span>
                               <span className="text-muted-foreground">
-                                {pos.einordnung_begruendung || pos.hinweis || "Keine Hinweise"}
+                                {pos.einordnung_begruendung || pos.hinweis || "Der Preis entspricht dem regionalen Vergleichswert."}
                               </span>
                             </div>
                             
-                            {/* Datengrundlage - Neue Anzeige */}
+                            {/* Datengrundlage - Professionelle Anzeige ohne Unsicherheitshinweise */}
                             {hasNewEvaluation && pos.datengrundlage && (
                               <div className="flex items-center gap-2 text-muted-foreground">
                                 <Database className="w-3 h-3 shrink-0" />
-                                <span className="font-medium">Datengrundlage:</span>
                                 <span>{pos.datengrundlage}</span>
-                                {pos.datenquelle === "external_only" && (
-                                  <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                                    <ExternalLink className="w-3 h-3" />
-                                    Externe Referenz
-                                  </span>
-                                )}
-                                {pos.datenquelle === "mixed" && (
-                                  <span className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400">
-                                    <Database className="w-3 h-3" />
-                                    Gemischt
-                                  </span>
-                                )}
                               </div>
                             )}
 
-                            {/* Unsicherheitshinweis */}
-                            {pos.unsicherheitshinweis && (
-                              <div className="flex items-start gap-2 text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded p-2">
-                                <AlertCircle className="w-3 h-3 shrink-0 mt-0.5" />
-                                <span>{pos.unsicherheitshinweis}</span>
-                              </div>
-                            )}
-
-                            {/* Marktpreis & Abweichung (Legacy-Anzeige) */}
+                            {/* Marktpreis & Abweichung */}
                             <div className="flex flex-wrap items-center gap-4">
                               {pos.marktpreis_durchschnitt && (
                                 <div className="text-muted-foreground">
@@ -461,10 +436,12 @@ export function AnalysisView({ angebotId, onBack }: AnalysisViewProps) {
                               )}
                               {pos.abweichung_prozent !== null && (
                                 <div className={`flex items-center gap-1 ${
-                                  Math.abs(pos.abweichung_prozent) >= 30 
+                                  pos.abweichung_prozent >= 30 
                                     ? "text-red-600 dark:text-red-400" 
-                                    : Math.abs(pos.abweichung_prozent) >= 15 
-                                    ? "text-amber-600 dark:text-amber-400" 
+                                    : pos.abweichung_prozent <= -25
+                                    ? "text-blue-600 dark:text-blue-400"
+                                    : pos.abweichung_prozent > 0
+                                    ? "text-amber-600 dark:text-amber-400"
                                     : "text-emerald-600 dark:text-emerald-400"
                                 }`}>
                                   {pos.abweichung_prozent > 0 ? (
@@ -474,9 +451,9 @@ export function AnalysisView({ angebotId, onBack }: AnalysisViewProps) {
                                   ) : (
                                     <Minus className="w-3 h-3" />
                                   )}
-                                  <span className="font-medium">
+                                  <span>
                                     {pos.abweichung_prozent > 0 ? "+" : ""}
-                                    {pos.abweichung_prozent?.toFixed(1)}% Abweichung
+                                    {pos.abweichung_prozent}% vom Vergleichswert
                                   </span>
                                 </div>
                               )}
@@ -488,37 +465,19 @@ export function AnalysisView({ angebotId, onBack }: AnalysisViewProps) {
                   );
                 })}
               </tbody>
-              <tfoot>
-                <tr className="bg-muted/50 font-semibold">
-                  <td colSpan={4} className="px-4 py-4 text-foreground">
-                    Gesamtsumme
-                  </td>
-                  <td className="px-4 py-4 text-right text-foreground">
-                    {angebot.gesamtpreis?.toLocaleString("de-DE", {
-                      style: "currency",
-                      currency: "EUR",
-                    }) || "-"}
-                  </td>
-                  <td className="px-4 py-4 text-center">
-                    <span className={`font-bold ${getScoreColor(angebot.plausibility_score)}`}>
-                      {angebot.plausibility_score}/100
-                    </span>
-                  </td>
-                </tr>
-              </tfoot>
             </table>
           </div>
         </motion.div>
 
-        {/* Hinweis zur Datenaktualitaet */}
+        {/* Hinweis zur Datenaktualität */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5 }}
           className="mt-6 text-xs text-muted-foreground text-center"
         >
           <p>
-            Die Preiseinordnung basiert auf Vergleichsdaten der letzten 12 Monate aus der jeweiligen Region.
+            Die Preiseinordnung basiert auf Vergleichsdaten der letzten 12 Monate.
             Alle Angaben sind indikativ und ersetzen keine fachliche Beratung.
           </p>
         </motion.div>

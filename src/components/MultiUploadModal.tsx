@@ -308,6 +308,39 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
       };
       await updateAnalysis(combinedAnalysis);
 
+      // Save anonymized data to database for future comparisons
+      if (session?.id) {
+        setCurrentStep('Daten werden gespeichert...');
+        try {
+          const { error: saveError } = await supabase.functions.invoke('save-guest-analysis', {
+            body: {
+              session_id: session.id,
+              analysis_data: {
+                documents: results.filter(r => r.status === 'success').map(r => ({
+                  title: r.fileName,
+                  gesamtpreis: r.gesamtpreis,
+                  plausibility_score: r.plausibility_score,
+                  service_domain: r.service_domain || category,
+                  document_type: 'angebot',
+                  positionen: r.positionen || []
+                })),
+                plz,
+                stadt
+              }
+            }
+          });
+          
+          if (saveError) {
+            console.warn('Could not save analysis data:', saveError);
+          } else {
+            console.log('Analysis data saved successfully');
+          }
+        } catch (saveError) {
+          console.warn('Error saving analysis data:', saveError);
+          // Don't fail the whole process if saving fails
+        }
+      }
+
       toast({
         title: "Analyse abgeschlossen",
         description: `${results.filter(r => r.status === 'success').length} von ${files.length} Dokumenten erfolgreich analysiert.`,

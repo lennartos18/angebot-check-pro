@@ -8,27 +8,41 @@ import { ComparisonSection } from "@/components/ComparisonSection";
 import { PricingSection } from "@/components/PricingSection";
 import { UploadSection } from "@/components/UploadSection";
 import { Footer } from "@/components/Footer";
-import { GuestUploadModal, GuestAnalysisResult } from "@/components/GuestUploadModal";
-import { GuestAnalysisView } from "@/components/GuestAnalysisView";
-import { useNavigate } from "react-router-dom";
+import { MultiUploadModal } from "@/components/MultiUploadModal";
+import { MultiDocumentAnalysisView } from "@/components/MultiDocumentAnalysisView";
+import { useToast } from "@/hooks/use-toast";
 
 const Index = () => {
-  const navigate = useNavigate();
+  const { toast } = useToast();
   const [showUploadModal, setShowUploadModal] = useState(false);
-  const [guestAnalysis, setGuestAnalysis] = useState<GuestAnalysisResult | null>(null);
+  const [analysisData, setAnalysisData] = useState<any>(null);
 
   const handleUploadClick = () => {
     setShowUploadModal(true);
   };
 
-  const handleAnalysisComplete = (analysis: GuestAnalysisResult) => {
+  const handleAnalysisComplete = (data: any) => {
     setShowUploadModal(false);
-    setGuestAnalysis(analysis);
+    setAnalysisData(data);
   };
 
-  const handleLoginRequired = () => {
-    navigate("/auth");
+  const handleRequestPDF = () => {
+    toast({
+      title: "PDF-Report",
+      description: "Die Stripe-Zahlung wird in Kürze aktiviert. Preis: 2,99€",
+    });
   };
+
+  // Show analysis view if we have results
+  if (analysisData) {
+    return (
+      <MultiDocumentAnalysisView
+        analysisData={analysisData}
+        onRequestPDF={handleRequestPDF}
+        onClose={() => setAnalysisData(null)}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -44,21 +58,12 @@ const Index = () => {
       </main>
       <Footer />
 
-      {/* Guest Upload Modal */}
-      <GuestUploadModal
+      {/* Multi Upload Modal */}
+      <MultiUploadModal
         open={showUploadModal}
         onClose={() => setShowUploadModal(false)}
         onAnalysisComplete={handleAnalysisComplete}
       />
-
-      {/* Guest Analysis View */}
-      {guestAnalysis && (
-        <GuestAnalysisView
-          analysis={guestAnalysis}
-          onClose={() => setGuestAnalysis(null)}
-          onLoginRequired={handleLoginRequired}
-        />
-      )}
     </div>
   );
 };

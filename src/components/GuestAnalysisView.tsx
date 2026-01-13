@@ -17,13 +17,10 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
-  AlertCircle,
   CheckCircle,
   XCircle,
   ArrowRight,
   Database,
-  ExternalLink,
-  HelpCircle,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import type { GuestAnalysisResult } from "./GuestUploadModal";
@@ -171,7 +168,7 @@ export function GuestAnalysisView({ analysis, onClose, onLoginRequired }: GuestA
                     {evaluationCounts.positive}
                   </span>
                   <span className="flex items-center gap-1">
-                    <AlertCircle className="w-4 h-4 text-amber-500" />
+                    <Minus className="w-4 h-4 text-amber-500" />
                     {evaluationCounts.neutral}
                   </span>
                   <span className="flex items-center gap-1">
@@ -234,32 +231,18 @@ export function GuestAnalysisView({ analysis, onClose, onLoginRequired }: GuestA
                               <p className="font-medium text-foreground text-sm">
                                 {pos.beschreibung}
                               </p>
-                              {/* Datengrundlage-Anzeige */}
+                              {/* Datengrundlage - Professionelle Anzeige */}
                               {pos.datengrundlage && (
                                 <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">
                                   <Database className="w-3 h-3" />
                                   <span>{pos.datengrundlage}</span>
-                                  {pos.datenquelle === "external_only" && (
-                                    <ExternalLink className="w-3 h-3 text-amber-500" />
-                                  )}
                                 </div>
                               )}
-                              {pos.hinweis && !pos.einordnung_begruendung && (
+                              {/* Begründung */}
+                              {(pos.einordnung_begruendung || pos.hinweis) && (
                                 <p className="text-xs text-muted-foreground mt-1">
-                                  💡 {pos.hinweis}
+                                  {pos.einordnung_begruendung || pos.hinweis}
                                 </p>
-                              )}
-                              {pos.einordnung_begruendung && (
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  {pos.einordnung_begruendung}
-                                </p>
-                              )}
-                              {/* Unsicherheitshinweis */}
-                              {pos.unsicherheitshinweis && (
-                                <div className="flex items-start gap-1.5 mt-1 text-xs text-amber-600 dark:text-amber-400">
-                                  <AlertCircle className="w-3 h-3 shrink-0 mt-0.5" />
-                                  <span>{pos.unsicherheitshinweis}</span>
-                                </div>
                               )}
                             </td>
                             <td className="px-4 py-3 text-right text-sm text-muted-foreground">
@@ -300,7 +283,7 @@ export function GuestAnalysisView({ analysis, onClose, onLoginRequired }: GuestA
               </Card>
             </motion.div>
 
-            {/* Hinweis zur Datenaktualitaet */}
+            {/* Hinweis zur Datenaktualität */}
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}

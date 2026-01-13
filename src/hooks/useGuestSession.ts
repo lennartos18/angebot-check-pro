@@ -135,7 +135,13 @@ export function useGuestSession() {
 
   // Update analysis result
   const updateAnalysis = useCallback(async (analysisJson: any) => {
-    if (!session) return;
+    if (!session) {
+      console.warn('[useGuestSession] updateAnalysis called but no session available');
+      return;
+    }
+
+    console.log('[useGuestSession] Updating analysis for session:', session.id);
+    console.log('[useGuestSession] Analysis data keys:', Object.keys(analysisJson || {}));
 
     try {
       const { error: updateError } = await supabase
@@ -143,11 +149,15 @@ export function useGuestSession() {
         .update({ analysis_json: analysisJson })
         .eq('id', session.id);
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        console.error('[useGuestSession] Error updating analysis:', updateError);
+        throw updateError;
+      }
 
+      console.log('[useGuestSession] ✓ Analysis updated successfully');
       setSession(prev => prev ? { ...prev, analysisJson } : null);
     } catch (err) {
-      console.error('Error updating analysis:', err);
+      console.error('[useGuestSession] Exception updating analysis:', err);
       setError(err instanceof Error ? err.message : 'Analyse-Update-Fehler');
     }
   }, [session]);

@@ -142,7 +142,7 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Fetch market price data for comparison
+    // Fetch internal market price data for comparison
     const { data: marktpreise } = await supabase
       .from("marktpreise")
       .select("*, gewerke(name)");
@@ -154,6 +154,63 @@ Deno.serve(async (req) => {
     // Get gewerke for categorization
     const { data: gewerke } = await supabase.from("gewerke").select("*");
     const gewerkeList = gewerke?.map(g => g.name).join(", ") || "";
+    
+    // Prepare positions for external market price lookup
+    const positionsForLookup = positions && Array.isArray(positions) ? positions.map((p: Position) => ({
+      beschreibung: p.beschreibung || '',
+      material: p.material,
+      einheit: p.einheit,
+      menge: p.menge,
+    })) : [];
+    
+    // Fetch external market prices if we have positions and Firecrawl is configured
+    let externalPriceInfo = "";
+    const kategorie = serviceDomain === 'kfz' || serviceDomain === 'werkstatt' ? 'kfz' : 'handwerk';
+    
+    if (positionsForLookup.length > 0) {
+      try {
+        console.log(`Fetching external market prices for ${positionsForLookup.length} positions...`);
+        
+        const externalPricesResponse = await fetch(`${supabaseUrl}/functions/v1/fetch-market-prices`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            positionen: positionsForLookup,
+            kategorie: kategorie,
+          }),
+        });
+        
+        if (externalPricesResponse.ok) {
+          const externalData = await externalPricesResponse.json();
+          
+          if (externalData.success && externalData.results) {
+            const externalPrices: string[] = [];
+            
+            for (const [index, result] of Object.entries(externalData.results) as [string, any][]) {
+              const pos = positionsForLookup[parseInt(index)];
+              if (result.gefunden && result.preis_min && result.preis_max) {
+                externalPrices.push(
+                  `${pos.beschreibung}: ${result.preis_min.toFixed(2)}-${result.preis_max.toFixed(2)}€ (Ø ${result.preis_durchschnitt?.toFixed(2) || 'N/A'}€) - Quellen: ${result.quellen?.join(', ') || 'Web-Recherche'}`
+                );
+              }
+            }
+            
+            if (externalPrices.length > 0) {
+              externalPriceInfo = `\n\nEXTERNE WEB-RECHERCHE MARKTDATEN:\n${externalPrices.join('\n')}`;
+              console.log(`Found external prices for ${externalPrices.length} positions`);
+            }
+          }
+        } else {
+          console.log('External price fetch failed, continuing with internal data only');
+        }
+      } catch (error) {
+        console.error('Error fetching external prices:', error);
+        // Continue without external prices
+      }
+    }
 
     // Determine if this is automotive/Kfz
     const isKfz = serviceDomain === 'werkstatt' || serviceDomain === 'kfz';
@@ -192,8 +249,12 @@ GRUNDPRINZIPIEN:
 - Alle Aussagen sind indikativ, nicht absolut
 - Bewertungen erfolgen positionsbezogen
 
-MARKTPREIS-REFERENZDATEN (letzte 12 Monate):
-${marktpreisInfo}
+WICHTIG: Nutze IMMER die verfügbaren Vergleichsdaten für die Bewertung!
+Wenn externe Web-Recherche-Daten vorhanden sind, verwende diese bevorzugt.
+
+INTERNE MARKTPREIS-REFERENZDATEN (letzte 12 Monate):
+${marktpreisInfo || 'Keine internen Daten verfügbar'}
+${externalPriceInfo}
 
 VERFÜGBARE GEWERKE: ${gewerkeList}
 

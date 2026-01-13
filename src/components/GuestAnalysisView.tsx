@@ -1,11 +1,25 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { X, Download, Save, Lock, CheckCircle2, AlertTriangle, HelpCircle, Info, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { 
+  X, 
+  Download, 
+  Save, 
+  Lock, 
+  CheckCircle2, 
+  AlertTriangle, 
+  HelpCircle, 
+  Info, 
+  TrendingUp, 
+  TrendingDown,
+  MapPin,
+  FileText
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
+import { StatusBadge, EvaluationLevel } from "./StatusBadge";
 
 interface GuestPosition {
   position_nummer?: number;
@@ -25,6 +39,7 @@ interface GuestPosition {
   hinweis?: string;
   status?: string;
   plausibility_score?: number;
+  interne_vergleiche?: number;
 }
 
 export interface GuestAnalysisResult {
@@ -48,126 +63,124 @@ interface GuestAnalysisViewProps {
   onLoginRequired: () => void;
 }
 
-type StatusType = 
-  | 'im_regionalen_rahmen' 
-  | 'leicht_ueber_vergleich' 
-  | 'leicht_unter_vergleich'
-  | 'auffaellig_hoch' 
-  | 'auffaellig_niedrig' 
-  | 'nicht_einordenbar'
-  | 'green' | 'yellow' | 'red';
-
-const toStatusType = (status: string | null | undefined): StatusType => {
+// Convert various status strings to normalized EvaluationLevel
+const toStatusType = (status: string | null | undefined): EvaluationLevel => {
   if (!status) return 'nicht_einordenbar';
   const normalized = status.toLowerCase().replace(/[äöü]/g, (match) => {
     return { 'ä': 'ae', 'ö': 'oe', 'ü': 'ue' }[match] || match;
-  });
+  }).replace(/[\s-]+/g, '_');
   
-  // Map legacy statuses
-  if (normalized === 'green' || normalized === 'ok') return 'im_regionalen_rahmen';
-  if (normalized === 'yellow' || normalized === 'warning') return 'leicht_ueber_vergleich';
-  if (normalized === 'red' || normalized === 'critical') return 'auffaellig_hoch';
-  
-  const validStatuses: StatusType[] = [
-    'im_regionalen_rahmen', 'leicht_ueber_vergleich', 'leicht_unter_vergleich',
-    'auffaellig_hoch', 'auffaellig_niedrig', 'nicht_einordenbar'
-  ];
-  
-  if (validStatuses.includes(normalized as StatusType)) {
-    return normalized as StatusType;
+  // Map various status strings
+  if (normalized.includes('im_rahmen') || normalized === 'green' || normalized === 'ok') {
+    return 'im_regionalen_rahmen';
   }
+  if (normalized.includes('leicht_ueber') || normalized.includes('leicht_uber') || normalized === 'yellow' || normalized === 'warning') {
+    return 'leicht_ueber_vergleich';
+  }
+  if (normalized.includes('auffaellig_hoch') || normalized.includes('auffällig_hoch') || normalized === 'red' || normalized === 'critical') {
+    return 'auffaellig_hoch';
+  }
+  if (normalized.includes('auffaellig_niedrig') || normalized.includes('auffällig_niedrig')) {
+    return 'auffaellig_niedrig';
+  }
+  
   return 'nicht_einordenbar';
 };
 
-const getStatusConfig = (status: StatusType) => {
-  switch (status) {
-    case 'im_regionalen_rahmen':
-    case 'green':
-      return {
-        label: 'Im Rahmen',
-        color: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-        icon: CheckCircle2,
-        iconColor: 'text-emerald-600',
-        category: 'positive' as const
-      };
-    case 'leicht_ueber_vergleich':
-    case 'yellow':
-      return {
-        label: 'Leicht erhöht',
-        color: 'bg-amber-100 text-amber-800 border-amber-200',
-        icon: TrendingUp,
-        iconColor: 'text-amber-600',
-        category: 'neutral' as const
-      };
-    case 'leicht_unter_vergleich':
-      return {
-        label: 'Leicht unter',
-        color: 'bg-blue-100 text-blue-800 border-blue-200',
-        icon: TrendingDown,
-        iconColor: 'text-blue-600',
-        category: 'positive' as const
-      };
-    case 'auffaellig_hoch':
-    case 'red':
-      return {
-        label: 'Auffällig hoch',
-        color: 'bg-red-100 text-red-800 border-red-200',
-        icon: AlertTriangle,
-        iconColor: 'text-red-600',
-        category: 'negative' as const
-      };
-    case 'auffaellig_niedrig':
-      return {
-        label: 'Auffällig niedrig',
-        color: 'bg-orange-100 text-orange-800 border-orange-200',
-        icon: TrendingDown,
-        iconColor: 'text-orange-600',
-        category: 'neutral' as const
-      };
-    default:
-      return {
-        label: 'Nicht einordenbar',
-        color: 'bg-gray-100 text-gray-600 border-gray-200',
-        icon: HelpCircle,
-        iconColor: 'text-gray-500',
-        category: 'unknown' as const
-      };
+// Status configuration for summary display
+const statusConfig: Record<string, { label: string; shortLabel: string; dotClass: string; category: 'positive' | 'neutral' | 'negative' | 'unknown' }> = {
+  'im_regionalen_rahmen': {
+    label: 'Im regionalen Rahmen',
+    shortLabel: 'im Rahmen',
+    dotClass: 'bg-green-500',
+    category: 'positive'
+  },
+  'leicht_ueber_vergleich': {
+    label: 'Leicht über Vergleich',
+    shortLabel: 'prüfenswert',
+    dotClass: 'bg-yellow-500',
+    category: 'neutral'
+  },
+  'auffaellig_hoch': {
+    label: 'Auffällig hoch',
+    shortLabel: 'auffällig',
+    dotClass: 'bg-red-500',
+    category: 'negative'
+  },
+  'auffaellig_niedrig': {
+    label: 'Auffällig niedrig',
+    shortLabel: 'auffällig niedrig',
+    dotClass: 'bg-orange-500',
+    category: 'negative'
+  },
+  'nicht_einordenbar': {
+    label: 'Nicht einordenbar',
+    shortLabel: 'unklar',
+    dotClass: 'bg-muted-foreground',
+    category: 'unknown'
   }
 };
 
-const getScoreColor = (score: number) => {
-  if (score >= 75) return 'text-emerald-600';
-  if (score >= 50) return 'text-amber-600';
-  return 'text-red-600';
-};
+// Calculate status counts
+function getStatusCounts(positionen: GuestPosition[]) {
+  const counts: Record<EvaluationLevel, number> = {
+    'im_regionalen_rahmen': 0,
+    'leicht_ueber_vergleich': 0,
+    'auffaellig_hoch': 0,
+    'auffaellig_niedrig': 0,
+    'nicht_einordenbar': 0
+  };
+  
+  positionen.forEach(pos => {
+    const status = toStatusType(pos.einordnung_stufe || pos.status);
+    counts[status]++;
+  });
+  
+  return counts;
+}
 
-const getScoreBg = (score: number) => {
-  if (score >= 75) return 'bg-emerald-50 border-emerald-200';
-  if (score >= 50) return 'bg-amber-50 border-amber-200';
-  return 'bg-red-50 border-red-200';
-};
+// Status Summary component for header
+function StatusSummary({ counts }: { counts: Record<EvaluationLevel, number> }) {
+  const displayOrder: EvaluationLevel[] = [
+    'im_regionalen_rahmen',
+    'leicht_ueber_vergleich',
+    'auffaellig_hoch',
+    'auffaellig_niedrig'
+  ];
+  
+  return (
+    <div className="flex flex-wrap gap-3 items-center">
+      {displayOrder.map(status => {
+        const count = counts[status];
+        if (count === 0) return null;
+        const config = statusConfig[status];
+        return (
+          <div key={status} className="flex items-center gap-1.5 text-sm">
+            <span className={`w-2.5 h-2.5 rounded-full ${config.dotClass}`}></span>
+            <span className="text-muted-foreground">
+              {count} {config.shortLabel}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export function GuestAnalysisView({ analysis, onClose, onLoginRequired }: GuestAnalysisViewProps) {
   const navigate = useNavigate();
   const [showLoginWall, setShowLoginWall] = useState(false);
   const [loginAction, setLoginAction] = useState<"save" | "pdf" | "compare">("save");
 
-  // Count evaluations by category
-  const evaluationCounts = {
-    positive: 0,
-    neutral: 0,
-    negative: 0,
-    unknown: 0
-  };
-
-  analysis.positionen?.forEach(pos => {
-    const status = toStatusType(pos.einordnung_stufe || pos.status);
-    const config = getStatusConfig(status);
-    if (config.category === 'positive') evaluationCounts.positive++;
-    else if (config.category === 'neutral') evaluationCounts.neutral++;
-    else if (config.category === 'negative') evaluationCounts.negative++;
-    else evaluationCounts.unknown++;
-  });
+  const positionen = analysis.positionen || [];
+  const statusCounts = getStatusCounts(positionen);
+  
+  // Calculate total comparisons
+  const totalComparisons = positionen.reduce((sum, pos) => sum + (pos.interne_vergleiche || 0), 0);
+  
+  // Get current quarter
+  const now = new Date();
+  const quarter = `Q${Math.ceil((now.getMonth() + 1) / 3)} ${now.getFullYear()}`;
 
   const handlePremiumAction = (action: "save" | "pdf" | "compare") => {
     setLoginAction(action);
@@ -179,123 +192,233 @@ export function GuestAnalysisView({ analysis, onClose, onLoginRequired }: GuestA
     navigate('/auth');
   };
 
-  const score = analysis.plausibility_score || 0;
-  const totalPositions = analysis.positionen?.length || 0;
-
   return (
     <TooltipProvider>
       <Dialog open={true} onOpenChange={onClose}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0">
-          {/* Header */}
-          <DialogHeader className="sticky top-0 bg-background z-10 p-6 pb-4 border-b">
-            <div className="flex items-start justify-between">
-              <div>
-                <DialogTitle className="text-2xl font-bold">
-                  Analyse-Ergebnis
-                </DialogTitle>
-                <p className="text-muted-foreground mt-1">
-                  {analysis.document_type || 'Dokument'} 
-                  {analysis.handwerker_firma && ` von ${analysis.handwerker_firma}`}
-                  {analysis.stadt && ` • ${analysis.stadt}`}
-                  {analysis.plz && ` (${analysis.plz})`}
-                </p>
-              </div>
-              <Button variant="ghost" size="icon" onClick={onClose} className="shrink-0">
-                <X className="h-5 w-5" />
-              </Button>
-            </div>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-primary" />
+              Analyse-Ergebnis
+            </DialogTitle>
+            <DialogDescription>
+              Kostenlose Vorschau Ihrer Angebots-Analyse
+            </DialogDescription>
           </DialogHeader>
 
-          <div className="p-6 space-y-6">
-            {/* Score Overview */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {/* Plausibility Score */}
-              <Card className={`border-2 ${getScoreBg(score)}`}>
-                <CardContent className="p-4 text-center">
-                  <div className={`text-3xl font-bold ${getScoreColor(score)}`}>
-                    {score}%
-                  </div>
-                  <div className="text-sm text-muted-foreground mt-1">Plausibilität</div>
-                </CardContent>
-              </Card>
-
-              {/* Total Price */}
-              <Card className="border">
-                <CardContent className="p-4 text-center">
-                  <div className="text-3xl font-bold text-foreground">
-                    {analysis.gesamtpreis?.toLocaleString('de-DE', { minimumFractionDigits: 2 })}€
-                  </div>
-                  <div className="text-sm text-muted-foreground mt-1">Gesamtpreis</div>
-                </CardContent>
-              </Card>
-
-              {/* Positions Count */}
-              <Card className="border">
-                <CardContent className="p-4 text-center">
-                  <div className="text-3xl font-bold text-foreground">
-                    {totalPositions}
-                  </div>
-                  <div className="text-sm text-muted-foreground mt-1">Positionen</div>
-                </CardContent>
-              </Card>
-
-              {/* Service Domain */}
-              <Card className="border">
-                <CardContent className="p-4 text-center">
-                  <div className="text-xl font-bold text-foreground truncate">
-                    {analysis.service_domain || 'Allgemein'}
-                  </div>
-                  <div className="text-sm text-muted-foreground mt-1">Gewerk</div>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Status Summary Bar */}
-            <Card className="border bg-muted/30">
-              <CardContent className="p-4">
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="text-sm font-medium text-muted-foreground">Bewertung:</span>
-                  
-                  {evaluationCounts.positive > 0 && (
-                    <div className="flex items-center gap-1.5">
-                      <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                      <span className="text-sm font-medium text-emerald-700">
-                        {evaluationCounts.positive} im Rahmen
-                      </span>
+          <div className="space-y-4">
+            {/* Main Analysis Card with Table */}
+            <Card className="border-border">
+              <CardHeader className="pb-4">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                  <div className="space-y-1">
+                    <CardTitle className="text-lg font-semibold">
+                      Angebot: {analysis.service_domain || 'Handwerkerleistung'}
+                    </CardTitle>
+                    <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+                      {(analysis.stadt || analysis.plz) && (
+                        <div className="flex items-center gap-1.5">
+                          <MapPin className="h-3.5 w-3.5" />
+                          {[analysis.plz, analysis.stadt].filter(Boolean).join(' ')}
+                        </div>
+                      )}
+                      {analysis.handwerker_firma && (
+                        <span>• {analysis.handwerker_firma}</span>
+                      )}
                     </div>
-                  )}
-                  
-                  {evaluationCounts.neutral > 0 && (
-                    <div className="flex items-center gap-1.5">
-                      <Minus className="h-4 w-4 text-amber-600" />
-                      <span className="text-sm font-medium text-amber-700">
-                        {evaluationCounts.neutral} prüfenswert
-                      </span>
-                    </div>
-                  )}
-                  
-                  {evaluationCounts.negative > 0 && (
-                    <div className="flex items-center gap-1.5">
-                      <AlertTriangle className="h-4 w-4 text-red-600" />
-                      <span className="text-sm font-medium text-red-700">
-                        {evaluationCounts.negative} auffällig
-                      </span>
-                    </div>
-                  )}
+                  </div>
+                  <StatusSummary counts={statusCounts} />
+                </div>
+              </CardHeader>
+              
+              <CardContent className="pt-0">
+                {/* Desktop Table View */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="hover:bg-transparent">
+                        <TableHead className="w-[40%]">Position</TableHead>
+                        <TableHead>Material</TableHead>
+                        <TableHead className="text-right">Menge</TableHead>
+                        <TableHead className="text-right">Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {positionen.map((pos, index) => {
+                        const status = toStatusType(pos.einordnung_stufe || pos.status);
+                        const hasDetails = pos.einordnung_begruendung || pos.marktpreis_durchschnitt || pos.hinweis;
+                        
+                        return (
+                          <TableRow 
+                            key={index} 
+                            className="hover:bg-muted/30"
+                          >
+                            <TableCell className="font-medium">
+                              {pos.beschreibung}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground">
+                              {pos.material || '–'}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {pos.menge != null ? `${pos.menge} ${pos.einheit || ''}`.trim() : '–'}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center justify-end gap-2">
+                                <StatusBadge status={status} size="sm" />
+                                {hasDetails && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button className="p-1 rounded-full hover:bg-muted/50 transition-colors">
+                                        <Info className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent 
+                                      side="left" 
+                                      className="max-w-xs p-3 space-y-2"
+                                    >
+                                      {pos.einordnung_begruendung && (
+                                        <p className="text-sm">{pos.einordnung_begruendung}</p>
+                                      )}
+                                      {pos.marktpreis_durchschnitt && (
+                                        <div className="text-xs text-muted-foreground space-y-0.5">
+                                          <p>
+                                            Marktpreis: Ø {pos.marktpreis_durchschnitt.toLocaleString('de-DE')}€
+                                            {pos.marktpreis_min != null && pos.marktpreis_max != null && (
+                                              <span className="ml-1">
+                                                ({pos.marktpreis_min.toLocaleString('de-DE')}–{pos.marktpreis_max.toLocaleString('de-DE')}€)
+                                              </span>
+                                            )}
+                                          </p>
+                                          {pos.abweichung_prozent != null && (
+                                            <p>
+                                              Abweichung: {pos.abweichung_prozent > 0 ? '+' : ''}{pos.abweichung_prozent.toFixed(0)}%
+                                            </p>
+                                          )}
+                                        </div>
+                                      )}
+                                      {pos.hinweis && pos.hinweis !== 'Keine weiteren Hinweise' && (
+                                        <p className="text-xs italic text-muted-foreground border-t border-border pt-2 mt-2">
+                                          💡 {pos.hinweis}
+                                        </p>
+                                      )}
+                                      {pos.datengrundlage && (
+                                        <p className="text-xs text-muted-foreground/70">
+                                          Quelle: {pos.datengrundlage}
+                                        </p>
+                                      )}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
 
-                  {evaluationCounts.unknown > 0 && (
-                    <div className="flex items-center gap-1.5">
-                      <HelpCircle className="h-4 w-4 text-gray-500" />
-                      <span className="text-sm font-medium text-gray-600">
-                        {evaluationCounts.unknown} nicht einordenbar
-                      </span>
-                    </div>
-                  )}
+                {/* Mobile Card View */}
+                <div className="sm:hidden space-y-3">
+                  {positionen.map((pos, index) => {
+                    const status = toStatusType(pos.einordnung_stufe || pos.status);
+                    const hasDetails = pos.einordnung_begruendung || pos.marktpreis_durchschnitt || pos.hinweis;
+                    
+                    return (
+                      <div 
+                        key={index} 
+                        className="p-3 rounded-lg border border-border/50 bg-card space-y-2"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="text-sm font-medium flex-1">{pos.beschreibung}</span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <StatusBadge status={status} size="sm" />
+                            {hasDetails && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button className="p-1 rounded-full hover:bg-muted/50">
+                                    <Info className="h-4 w-4 text-muted-foreground" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-xs p-3 space-y-2">
+                                  {pos.einordnung_begruendung && (
+                                    <p className="text-sm">{pos.einordnung_begruendung}</p>
+                                  )}
+                                  {pos.marktpreis_durchschnitt && (
+                                    <p className="text-xs text-muted-foreground">
+                                      Markt: Ø {pos.marktpreis_durchschnitt.toLocaleString('de-DE')}€
+                                    </p>
+                                  )}
+                                  {pos.hinweis && pos.hinweis !== 'Keine weiteren Hinweise' && (
+                                    <p className="text-xs italic">💡 {pos.hinweis}</p>
+                                  )}
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                          {pos.material && <span>{pos.material}</span>}
+                          {pos.menge != null && (
+                            <span>{pos.menge} {pos.einheit || ''}</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Footer with data basis */}
+                <div className="mt-4 pt-4 border-t border-border flex items-start gap-2 text-xs text-muted-foreground">
+                  <Info className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                  <span>
+                    Basierend auf {totalComparisons > 0 ? `${totalComparisons} ` : ''}regionalen Vergleichspositionen
+                    {analysis.stadt && `, Region ${analysis.stadt}`}
+                    {analysis.plz && !analysis.stadt && `, PLZ ${analysis.plz}`}
+                    {', '}
+                    {quarter}
+                  </span>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Summary */}
+            {/* Summary Stats Row */}
+            {(analysis.gesamtpreis || analysis.plausibility_score) && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {analysis.plausibility_score != null && (
+                  <Card className="p-3 border">
+                    <div className="text-xs text-muted-foreground mb-1">Plausibilität</div>
+                    <div className={`text-xl font-bold ${
+                      analysis.plausibility_score >= 75 ? 'text-green-600' : 
+                      analysis.plausibility_score >= 50 ? 'text-yellow-600' : 
+                      'text-red-600'
+                    }`}>
+                      {analysis.plausibility_score}%
+                    </div>
+                  </Card>
+                )}
+                {analysis.gesamtpreis != null && (
+                  <Card className="p-3 border">
+                    <div className="text-xs text-muted-foreground mb-1">Gesamtpreis</div>
+                    <div className="text-xl font-bold">
+                      {analysis.gesamtpreis.toLocaleString('de-DE')}€
+                    </div>
+                  </Card>
+                )}
+                <Card className="p-3 border">
+                  <div className="text-xs text-muted-foreground mb-1">Positionen</div>
+                  <div className="text-xl font-bold">{positionen.length}</div>
+                </Card>
+                {analysis.service_domain && (
+                  <Card className="p-3 border">
+                    <div className="text-xs text-muted-foreground mb-1">Gewerk</div>
+                    <div className="text-lg font-bold truncate">{analysis.service_domain}</div>
+                  </Card>
+                )}
+              </div>
+            )}
+
+            {/* Analysis Summary */}
             {analysis.analysis_summary && (
               <Card className="border-l-4 border-l-primary bg-primary/5">
                 <CardContent className="p-4">
@@ -312,137 +435,46 @@ export function GuestAnalysisView({ analysis, onClose, onLoginRequired }: GuestA
               </Card>
             )}
 
-            {/* Positions List */}
-            <div>
-              <h3 className="text-lg font-semibold mb-4">Einzelpositionen</h3>
-              <div className="space-y-3">
-                {analysis.positionen?.map((position, index) => {
-                  const status = toStatusType(position.einordnung_stufe || position.status);
-                  const config = getStatusConfig(status);
-                  const StatusIcon = config.icon;
-
-                  return (
-                    <Card key={index} className="border hover:shadow-md transition-shadow">
-                      <CardContent className="p-4">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-2">
-                              <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded">
-                                Pos. {position.position_nummer || index + 1}
-                              </span>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Badge className={`${config.color} border cursor-help`}>
-                                    <StatusIcon className={`h-3 w-3 mr-1 ${config.iconColor}`} />
-                                    {config.label}
-                                  </Badge>
-                                </TooltipTrigger>
-                                <TooltipContent className="max-w-xs">
-                                  <p className="font-medium">{position.einordnung_begruendung || position.hinweis || 'Keine Details verfügbar'}</p>
-                                  {position.datengrundlage && (
-                                    <p className="text-xs text-muted-foreground mt-1">
-                                      Quelle: {position.datengrundlage}
-                                    </p>
-                                  )}
-                                </TooltipContent>
-                              </Tooltip>
-                            </div>
-
-                            <h4 className="font-medium text-foreground mb-1 line-clamp-2">
-                              {position.beschreibung}
-                            </h4>
-
-                            {/* Price and Market Comparison */}
-                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm mt-2">
-                              <span className="font-semibold text-foreground">
-                                {position.gesamtpreis?.toLocaleString('de-DE', { minimumFractionDigits: 2 })}€
-                              </span>
-                              
-                              {position.menge && position.einheit && (
-                                <span className="text-muted-foreground">
-                                  {position.menge} {position.einheit}
-                                  {position.einzelpreis && ` × ${position.einzelpreis.toLocaleString('de-DE', { minimumFractionDigits: 2 })}€`}
-                                </span>
-                              )}
-
-                              {position.marktpreis_durchschnitt && (
-                                <span className="text-muted-foreground">
-                                  Markt: Ø {position.marktpreis_durchschnitt.toLocaleString('de-DE')}€
-                                  {position.marktpreis_min && position.marktpreis_max && (
-                                    <span className="text-xs ml-1">
-                                      ({position.marktpreis_min.toLocaleString('de-DE')}-{position.marktpreis_max.toLocaleString('de-DE')}€)
-                                    </span>
-                                  )}
-                                </span>
-                              )}
-
-                              {position.abweichung_prozent !== null && position.abweichung_prozent !== undefined && (
-                                <span className={`font-medium ${
-                                  position.abweichung_prozent > 15 ? 'text-red-600' : 
-                                  position.abweichung_prozent < -15 ? 'text-blue-600' : 
-                                  'text-emerald-600'
-                                }`}>
-                                  {position.abweichung_prozent > 0 ? '+' : ''}{position.abweichung_prozent.toFixed(0)}%
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Hint */}
-                            {position.hinweis && position.hinweis !== 'Keine weiteren Hinweise' && (
-                              <p className="text-sm text-muted-foreground mt-2 italic">
-                                💡 {position.hinweis}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Data Basis Info */}
-            <Card className="bg-muted/50 border-dashed">
-              <CardContent className="p-4">
-                <div className="flex items-start gap-3">
-                  <Info className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-                  <div className="text-xs text-muted-foreground">
-                    <p className="font-medium mb-1">Hinweis zur Datengrundlage</p>
-                    <p>
-                      Diese Analyse basiert auf internen Marktdaten und allgemeinen Branchenkenntnissen für Deutschland.
-                      Die Bewertung dient der Orientierung und ersetzt keine fachliche Beratung.
-                      {analysis.plz && ` Regionale Besonderheiten für PLZ ${analysis.plz} wurden berücksichtigt.`}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
             {/* Premium CTA */}
-            <Card className="border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10">
-              <CardContent className="p-6">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                  <div>
-                    <h4 className="font-semibold text-lg flex items-center gap-2">
+            <Card className="border-primary/20 bg-primary/5">
+              <CardContent className="p-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-lg bg-primary/10">
                       <Lock className="h-5 w-5 text-primary" />
-                      Premium-Funktionen freischalten
-                    </h4>
-                    <p className="text-muted-foreground text-sm mt-1">
-                      Speichern Sie Ihre Analyse, laden Sie einen PDF-Report herunter oder vergleichen Sie mehrere Angebote.
-                    </p>
+                    </div>
+                    <div>
+                      <h4 className="font-medium">Premium-Funktionen freischalten</h4>
+                      <p className="text-sm text-muted-foreground">
+                        PDF-Report, Analyse speichern & Angebote vergleichen
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" size="sm" onClick={() => handlePremiumAction("pdf")}>
+                  <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => handlePremiumAction("pdf")}
+                      className="flex-1 sm:flex-none"
+                    >
                       <Download className="h-4 w-4 mr-2" />
-                      PDF Report
+                      PDF
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => handlePremiumAction("save")}>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => handlePremiumAction("save")}
+                      className="flex-1 sm:flex-none"
+                    >
                       <Save className="h-4 w-4 mr-2" />
                       Speichern
                     </Button>
-                    <Button size="sm" onClick={() => handlePremiumAction("compare")}>
-                      Kostenlos registrieren
+                    <Button 
+                      size="sm" 
+                      onClick={() => handlePremiumAction("compare")}
+                      className="flex-1 sm:flex-none"
+                    >
+                      Registrieren
                     </Button>
                   </div>
                 </div>
@@ -454,7 +486,7 @@ export function GuestAnalysisView({ analysis, onClose, onLoginRequired }: GuestA
 
       {/* Login Wall Dialog */}
       <Dialog open={showLoginWall} onOpenChange={setShowLoginWall}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Lock className="h-5 w-5 text-primary" />
@@ -462,37 +494,43 @@ export function GuestAnalysisView({ analysis, onClose, onLoginRequired }: GuestA
               {loginAction === "save" && "Analyse speichern"}
               {loginAction === "compare" && "Angebote vergleichen"}
             </DialogTitle>
+            <DialogDescription>
+              Erstellen Sie ein kostenloses Konto, um auf alle Funktionen zuzugreifen.
+            </DialogDescription>
           </DialogHeader>
+          
           <div className="space-y-4 py-4">
-            <p className="text-muted-foreground">
-              Erstellen Sie ein kostenloses Konto, um diese Funktion zu nutzen:
-            </p>
-            <ul className="space-y-2 text-sm">
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                Unbegrenzt Analysen speichern
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                PDF-Reports herunterladen
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                Mehrere Angebote vergleichen
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                Dauerhaft kostenlos
-              </li>
-            </ul>
-          </div>
-          <div className="flex flex-col gap-2">
-            <Button onClick={handleLogin} className="w-full">
-              Jetzt kostenlos registrieren
-            </Button>
-            <Button variant="ghost" onClick={() => setShowLoginWall(false)} className="w-full">
-              Später
-            </Button>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 text-sm">
+                <CheckCircle2 className="h-4 w-4 text-green-500" />
+                <span>Detaillierter PDF-Report zum Download</span>
+              </div>
+              <div className="flex items-center gap-3 text-sm">
+                <CheckCircle2 className="h-4 w-4 text-green-500" />
+                <span>Ausführliche Marktpreis-Analyse</span>
+              </div>
+              <div className="flex items-center gap-3 text-sm">
+                <CheckCircle2 className="h-4 w-4 text-green-500" />
+                <span>Unbegrenzte Angebots-Analysen</span>
+              </div>
+              <div className="flex items-center gap-3 text-sm">
+                <CheckCircle2 className="h-4 w-4 text-green-500" />
+                <span>Vergleich mehrerer Angebote</span>
+              </div>
+            </div>
+            
+            <div className="flex flex-col gap-2 pt-2">
+              <Button onClick={handleLogin} className="w-full">
+                Kostenlos registrieren
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={() => setShowLoginWall(false)}
+                className="w-full"
+              >
+                Zurück zur Analyse
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

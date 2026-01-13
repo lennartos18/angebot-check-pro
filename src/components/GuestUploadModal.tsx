@@ -146,7 +146,9 @@ export function GuestUploadModal({ open, onClose, onAnalysisComplete }: GuestUpl
       setProgress(20);
 
       // Convert file to base64 for the edge function
-      const base64File = await fileToBase64(file);
+      const base64Full = await fileToBase64(file);
+      // Remove data URL prefix to get pure base64
+      const base64Data = base64Full.split(',')[1];
       
       setProgress(40);
       setStep("analyzing");
@@ -155,19 +157,28 @@ export function GuestUploadModal({ open, onClose, onAnalysisComplete }: GuestUpl
         fileName: file.name, 
         fileType: file.type, 
         fileSize: file.size,
-        hasBase64: !!base64File
+        hasBase64: !!base64Data
       });
       
-      // Call analyze function without angebotId (guest mode)
+      // Call analyze function with correct field names
+      const isImage = file.type.startsWith('image/');
       const { data: analysisData, error: analysisError } = await supabase.functions.invoke(
         "analyze-angebot",
         {
-          body: {
-            // No angebotId = guest mode, no DB storage
-            extractedText: `Angebot: ${title}\nStadt: ${stadt || "Deutschland"}`,
-            fileBase64: base64File,
-            fileType: file.type,
-            guestMode: true,
+          body: isImage ? {
+            // Vision mode for images
+            imageBase64: base64Data,
+            mimeType: file.type,
+            documentType: "Angebot",
+            plz: "",
+            stadt: stadt || ""
+          } : {
+            // For PDFs we need to extract text first or use vision
+            imageBase64: base64Data,
+            mimeType: file.type,
+            documentType: "Angebot",
+            plz: "",
+            stadt: stadt || ""
           },
         }
       );
@@ -179,10 +190,13 @@ export function GuestUploadModal({ open, onClose, onAnalysisComplete }: GuestUpl
         throw new Error("Analyse fehlgeschlagen");
       }
 
-      if (analysisData?.analysis) {
+      console.log("Analysis response:", analysisData);
+
+      // The edge function returns the result directly, not nested in 'analysis'
+      if (analysisData?.success !== false && analysisData?.positionen) {
         // Store analysis in localStorage for persistence
         const guestAnalysis = {
-          ...analysisData.analysis,
+          ...analysisData,
           titel: title,
           stadt: stadt,
           fileName: file.name,
@@ -195,8 +209,10 @@ export function GuestUploadModal({ open, onClose, onAnalysisComplete }: GuestUpl
           description: "Ihre kostenlose Analyse ist fertig.",
         });
         
-        onAnalysisComplete(analysisData.analysis);
+        onAnalysisComplete(analysisData);
         resetState();
+      } else if (analysisData?.error) {
+        throw new Error(analysisData.error);
       } else {
         throw new Error("Keine Analysedaten erhalten");
       }

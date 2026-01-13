@@ -52,10 +52,17 @@ serve(async (req) => {
   try {
     const body = await req.json();
     console.log('Received body keys:', Object.keys(body));
-    console.log('imageBase64 present:', !!body.imageBase64, 'length:', body.imageBase64?.length || 0);
-    console.log('documentContent present:', !!body.documentContent);
     
-    const { documentContent, documentType, plz, stadt, imageBase64, mimeType } = body;
+    // Support both field naming conventions
+    const documentContent = body.documentContent || body.extractedText || null;
+    const imageBase64 = body.imageBase64 || body.fileBase64 || null;
+    const mimeType = body.mimeType || body.fileType || 'image/jpeg';
+    const documentType = body.documentType || 'Angebot';
+    const plz = body.plz || '';
+    const stadt = body.stadt || '';
+    
+    console.log('imageBase64 present:', !!imageBase64, 'length:', imageBase64?.length || 0);
+    console.log('documentContent present:', !!documentContent);
 
     if (!documentContent && !imageBase64) {
       throw new Error('Kein Dokumentinhalt oder Bild übermittelt');

@@ -3,6 +3,9 @@ project_id = "belwvphmskmbhvbrkeda"
 [functions.analyze-angebot]
 verify_jwt = false
 
+[functions.evaluate-price]
+verify_jwt = false
+
 [functions.extract-pdf]
 verify_jwt = false
 

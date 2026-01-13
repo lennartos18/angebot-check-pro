@@ -2,17 +2,17 @@ import { cn } from "@/lib/utils";
 import { CheckCircle, AlertTriangle, XCircle, TrendingUp, ArrowDown, HelpCircle } from "lucide-react";
 
 // Legacy-Status fuer Rueckwaertskompatibilitaet
-type LegacyStatusType = "green" | "yellow" | "red";
+export type LegacyStatusType = "green" | "yellow" | "red";
 
 // Neue Bewertungsstufen (verbindlich)
-type EvaluationLevel = 
+export type EvaluationLevel = 
   | "im_regionalen_rahmen"
   | "leicht_ueber_vergleich"
   | "auffaellig_hoch"
   | "auffaellig_niedrig"
   | "nicht_einordenbar";
 
-type StatusType = LegacyStatusType | EvaluationLevel;
+export type StatusType = LegacyStatusType | EvaluationLevel;
 
 interface StatusBadgeProps {
   status: StatusType;

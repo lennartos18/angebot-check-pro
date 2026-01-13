@@ -4,9 +4,7 @@ import { HeroSection } from "@/components/HeroSection";
 import { HowItWorksSection } from "@/components/HowItWorksSection";
 import { DemoAnalysisSection } from "@/components/DemoAnalysisSection";
 import { FeaturesSection } from "@/components/FeaturesSection";
-import { ComparisonSection } from "@/components/ComparisonSection";
-import { PricingSection } from "@/components/PricingSection";
-import { UploadSection } from "@/components/UploadSection";
+import { FAQSection } from "@/components/FAQSection";
 import { Footer } from "@/components/Footer";
 import { MultiUploadModal } from "@/components/MultiUploadModal";
 import { MultiDocumentAnalysisView } from "@/components/MultiDocumentAnalysisView";
@@ -51,10 +49,12 @@ const Index = () => {
         <HeroSection onUploadClick={handleUploadClick} />
         <HowItWorksSection />
         <DemoAnalysisSection />
-        <FeaturesSection />
-        <ComparisonSection />
-        <PricingSection />
-        <UploadSection onUploadClick={handleUploadClick} />
+        <section id="features">
+          <FeaturesSection />
+        </section>
+        <section id="faq">
+          <FAQSection />
+        </section>
       </main>
       <Footer />
 

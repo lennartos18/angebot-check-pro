@@ -50,7 +50,12 @@ serve(async (req) => {
   console.log('=== ANALYSE GESTARTET ===');
 
   try {
-    const { documentContent, documentType, plz, stadt, imageBase64, mimeType } = await req.json();
+    const body = await req.json();
+    console.log('Received body keys:', Object.keys(body));
+    console.log('imageBase64 present:', !!body.imageBase64, 'length:', body.imageBase64?.length || 0);
+    console.log('documentContent present:', !!body.documentContent);
+    
+    const { documentContent, documentType, plz, stadt, imageBase64, mimeType } = body;
 
     if (!documentContent && !imageBase64) {
       throw new Error('Kein Dokumentinhalt oder Bild übermittelt');

@@ -309,36 +309,64 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
       await updateAnalysis(combinedAnalysis);
 
       // Save anonymized data to database for future comparisons
-      if (session?.id) {
-        setCurrentStep('Daten werden gespeichert...');
+      // Important: This builds the price comparison database!
+      const successfulResults = results.filter(r => r.status === 'success');
+      
+      if (successfulResults.length > 0) {
+        setCurrentStep('Daten werden zur Datenbank hinzugefügt...');
+        
+        // Prepare documents for saving
+        const documentsToSave = successfulResults.map(r => ({
+          title: r.fileName,
+          gesamtpreis: r.gesamtpreis,
+          plausibility_score: r.plausibility_score,
+          service_domain: r.service_domain || category,
+          document_type: 'angebot',
+          positionen: r.positionen || []
+        }));
+        
+        console.log('[MultiUploadModal] Saving analysis data to database...');
+        console.log('[MultiUploadModal] Session ID:', session?.id);
+        console.log('[MultiUploadModal] Documents to save:', documentsToSave.length);
+        console.log('[MultiUploadModal] Total positions:', documentsToSave.reduce((sum, d) => sum + (d.positionen?.length || 0), 0));
+        console.log('[MultiUploadModal] PLZ:', plz, 'Stadt:', stadt);
+        
         try {
-          const { error: saveError } = await supabase.functions.invoke('save-guest-analysis', {
-            body: {
-              session_id: session.id,
-              analysis_data: {
-                documents: results.filter(r => r.status === 'success').map(r => ({
-                  title: r.fileName,
-                  gesamtpreis: r.gesamtpreis,
-                  plausibility_score: r.plausibility_score,
-                  service_domain: r.service_domain || category,
-                  document_type: 'angebot',
-                  positionen: r.positionen || []
-                })),
-                plz,
-                stadt
-              }
-            }
-          });
+          // Ensure we have a valid session ID
+          const sessionId = session?.id;
           
-          if (saveError) {
-            console.warn('Could not save analysis data:', saveError);
+          if (!sessionId) {
+            console.warn('[MultiUploadModal] No session ID available, skipping database save');
           } else {
-            console.log('Analysis data saved successfully');
+            const savePayload = {
+              session_id: sessionId,
+              analysis_data: {
+                documents: documentsToSave,
+                plz: plz || undefined,
+                stadt: stadt || undefined
+              }
+            };
+            
+            console.log('[MultiUploadModal] Calling save-guest-analysis with payload:', JSON.stringify(savePayload, null, 2));
+            
+            const { data: saveResult, error: saveError } = await supabase.functions.invoke('save-guest-analysis', {
+              body: savePayload
+            });
+            
+            if (saveError) {
+              console.error('[MultiUploadModal] Error saving to database:', saveError);
+              console.error('[MultiUploadModal] Error details:', JSON.stringify(saveError));
+            } else {
+              console.log('[MultiUploadModal] ✓ Database save successful:', saveResult);
+              console.log(`[MultiUploadModal] Saved ${saveResult?.saved_documents || 0} documents and ${saveResult?.saved_positions || 0} positions`);
+            }
           }
         } catch (saveError) {
-          console.warn('Error saving analysis data:', saveError);
-          // Don't fail the whole process if saving fails
+          console.error('[MultiUploadModal] Exception during database save:', saveError);
+          // Don't fail the whole process if saving fails - the user still gets their analysis
         }
+      } else {
+        console.log('[MultiUploadModal] No successful results to save to database');
       }
 
       toast({

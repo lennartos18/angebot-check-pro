@@ -101,14 +101,33 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { angebotId, extractedText, extractedPositionen, fileBase64, fileType, plz, guestMode, serviceDomain } = await req.json();
+    const body = await req.json();
+    const { 
+      angebotId, 
+      extractedText, 
+      extractedPositionen, 
+      manualPositions,
+      fileBase64, 
+      pdfBase64,
+      fileType, 
+      documentType,
+      plz, 
+      guestMode, 
+      serviceDomain 
+    } = body;
+    
+    // Support both naming conventions
+    const positions = extractedPositionen || manualPositions;
+    const documentData = fileBase64 || pdfBase64;
+    const docType = fileType || documentType;
     
     console.log("Received request:", { 
       hasAngebotId: !!angebotId, 
       hasExtractedText: !!extractedText, 
-      hasExtractedPositionen: !!extractedPositionen,
-      hasFileBase64: !!fileBase64,
-      fileType: fileType || "none",
+      hasPositions: !!positions,
+      positionCount: positions?.length || 0,
+      hasDocumentData: !!documentData,
+      docType: docType || "none",
       plz: plz || "none",
       guestMode: !!guestMode,
       serviceDomain: serviceDomain || "handwerk"
@@ -186,7 +205,7 @@ Für jede Position gib auch die alte "status" Ampelfarbe an für Rückwärtskomp
     // Build user message content
     let userMessageContent: any;
     
-    if (fileBase64 && fileType) {
+    if (documentData && docType) {
       console.log("Using Vision mode for document analysis");
       const textInstruction = `Analysiere dieses ${isKfz ? 'Kfz-Werkstatt-Dokument' : 'Handwerker-Angebot'} im Detail. 
 Extrahiere ALLE Positionen mit:
@@ -201,12 +220,35 @@ ${plz ? `PLZ/Region: ${plz}` : ""}`;
       
       userMessageContent = [
         { type: "text", text: textInstruction },
-        { type: "image_url", image_url: { url: fileBase64 } }
+        { type: "image_url", image_url: { url: documentData } }
       ];
-    } else if (extractedPositionen) {
-      userMessageContent = `Analysiere diese ${isKfz ? 'Werkstatt-' : 'Angebots'}positionen:\n${JSON.stringify(extractedPositionen, null, 2)}`;
-    } else {
+    } else if (positions && Array.isArray(positions) && positions.length > 0) {
+      console.log(`Using structured positions mode with ${positions.length} positions`);
+      
+      // Format positions for better AI understanding
+      const positionsText = positions.map((p: any, i: number) => 
+        `Position ${i + 1}:
+  - Beschreibung: ${p.beschreibung || 'Nicht angegeben'}
+  - Menge: ${p.menge || 'N/A'} ${p.einheit || ''}
+  - Einzelpreis: ${p.einzelpreis ? `${p.einzelpreis.toFixed(2)}€` : 'N/A'}
+  - Gesamtpreis: ${p.gesamtpreis ? `${p.gesamtpreis.toFixed(2)}€` : 'N/A'}`
+      ).join('\n\n');
+      
+      userMessageContent = `AUFGABE: Bewerte die folgenden ${positions.length} Angebotspositionen einzeln.
+
+POSITIONEN ZUR BEWERTUNG:
+
+${positionsText}
+
+REGION: ${plz ? `PLZ ${plz} (NRW)` : 'Deutschland (bundesweit)'}
+
+ANWEISUNG: Übernimm die Positionsdaten exakt und füge für jede Position eine Bewertung hinzu. Gib ALLE ${positions.length} Positionen in deiner Antwort zurück.`;
+    } else if (extractedText) {
+      console.log("Using extracted text mode");
       userMessageContent = `Analysiere diesen ${isKfz ? 'Werkstatt-Beleg' : 'Angebotstext'} und extrahiere alle Positionen:\n${extractedText}`;
+    } else {
+      console.error("No valid input data provided");
+      throw new Error("Keine Positionsdaten oder Dokument zum Analysieren vorhanden");
     }
 
     console.log("Sending to AI Gateway...");

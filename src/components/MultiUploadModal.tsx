@@ -279,10 +279,18 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
           };
           await addDocument(guestDoc);
 
+          // Extract analysis data from nested structure
+          const analysisData = data?.analysis || data;
+          
           results.push({
             documentIndex: i,
             fileName: file.name,
-            ...data,
+            positionen: analysisData?.positionen || [],
+            gesamtpreis: analysisData?.gesamtpreis,
+            plausibility_score: analysisData?.plausibility_score,
+            service_domain: analysisData?.service_domain,
+            handwerker_name: analysisData?.handwerker_firma || analysisData?.handwerker_name,
+            analysis_summary: analysisData?.analysis_summary,
             status: 'success'
           });
         }

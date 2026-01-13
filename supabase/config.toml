@@ -17,3 +17,6 @@ verify_jwt = true
 
 [functions.normalize-position]
 verify_jwt = false
+
+[functions.save-guest-analysis]
+verify_jwt = false

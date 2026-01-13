@@ -30,10 +30,85 @@ interface Position {
   einordnung_begruendung?: string;
   abweichung_prozent?: number;
   datengrundlage?: string;
+  datenquelle?: string;
   marktpreis_min?: number;
   marktpreis_max?: number;
   marktpreis_durchschnitt?: number;
   hinweis?: string;
+}
+
+// Map datengrundlage to user-friendly display text
+function getDataSourceDisplay(datengrundlage?: string, datenquelle?: string): string {
+  if (!datengrundlage && !datenquelle) return 'KI-gestützte Markteinschätzung';
+  
+  const source = datengrundlage?.toLowerCase() || '';
+  
+  if (source.includes('interne') && source.includes('markt')) {
+    return 'Interne Vergleichsdaten';
+  }
+  if (source.includes('branchendurchschnitt') || source.includes('deutschland')) {
+    return 'KI-gestützte Markteinschätzung (Bundesweit)';
+  }
+  if (source.includes('externe') || source.includes('firecrawl') || source.includes('web')) {
+    return 'Externe Preisrecherche (Web)';
+  }
+  if (source.includes('gemini') || source.includes('ki') || source.includes('ai')) {
+    return 'KI-gestützte Marktanalyse';
+  }
+  if (source.includes('regional')) {
+    return 'Regionale Vergleichsdaten';
+  }
+  if (source.includes('allgemein') || source.includes('schätzung')) {
+    return 'KI-Schätzung auf Basis öffentlicher Preisdaten';
+  }
+  
+  return datengrundlage || 'KI-gestützte Markteinschätzung';
+}
+
+// Aggregate data sources from all positions
+function aggregateDataSources(positionen: Position[]): { primary: string; sources: Set<string> } {
+  const sources = new Set<string>();
+  let hasExternal = false;
+  let hasInternal = false;
+  let hasKI = false;
+  
+  positionen.forEach(pos => {
+    const source = (pos.datengrundlage || '').toLowerCase();
+    if (source.includes('externe') || source.includes('firecrawl') || source.includes('web')) {
+      hasExternal = true;
+      sources.add('Externe Preisrecherche');
+    }
+    if (source.includes('interne') || source.includes('vergleich')) {
+      hasInternal = true;
+      sources.add('Interne Vergleichsdaten');
+    }
+    if (source.includes('gemini') || source.includes('ki') || source.includes('branchendurchschnitt') || source.includes('allgemein')) {
+      hasKI = true;
+      sources.add('KI-gestützte Analyse');
+    }
+  });
+  
+  // Default to KI if nothing else detected
+  if (sources.size === 0) {
+    hasKI = true;
+    sources.add('KI-gestützte Analyse');
+  }
+  
+  // Determine primary description
+  let primary: string;
+  if (hasExternal && hasKI) {
+    primary = 'Basierend auf KI-gestützter Marktanalyse und externen Preisquellen';
+  } else if (hasInternal && hasKI) {
+    primary = 'Basierend auf internen Vergleichsdaten und KI-Analyse';
+  } else if (hasExternal) {
+    primary = 'Basierend auf externen Preisrecherchen';
+  } else if (hasInternal) {
+    primary = 'Basierend auf internen Vergleichsdaten';
+  } else {
+    primary = 'Basierend auf KI-gestützter Marktanalyse (Gemini)';
+  }
+  
+  return { primary, sources };
 }
 
 interface DocumentResult {
@@ -351,11 +426,9 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
                                                 💡 {pos.hinweis}
                                               </p>
                                             )}
-                                            {pos.datengrundlage && (
-                                              <p className="text-xs text-muted-foreground/70">
-                                                Quelle: {pos.datengrundlage}
-                                              </p>
-                                            )}
+                                            <p className="text-xs text-muted-foreground/70 border-t border-border pt-2 mt-2">
+                                              Quelle: {getDataSourceDisplay(pos.datengrundlage, pos.datenquelle)}
+                                            </p>
                                           </TooltipContent>
                                         </Tooltip>
                                       )}
@@ -368,64 +441,113 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
                         </Table>
                       </div>
 
-                      {/* Mobile Cards */}
-                      <div className="sm:hidden space-y-3">
+                      {/* Mobile Cards - Enhanced */}
+                      <div className="sm:hidden space-y-2">
                         {doc.positionen?.map((pos, j) => {
                           const status = toEvaluationLevel(pos.einordnung_stufe);
+                          const [isExpanded, setIsExpanded] = React.useState(false);
                           const hasDetails = pos.einordnung_begruendung || pos.marktpreis_durchschnitt || pos.hinweis;
                           
                           return (
                             <div 
                               key={j} 
-                              className="p-3 rounded-lg border border-border/50 bg-card space-y-2"
+                              className="rounded-lg border border-border/50 bg-card overflow-hidden"
                             >
-                              <div className="flex items-start justify-between gap-2">
-                                <span className="text-sm font-medium flex-1">{pos.beschreibung}</span>
-                                <div className="flex items-center gap-1.5 shrink-0">
+                              {/* Main row - tappable */}
+                              <button
+                                onClick={() => hasDetails && setIsExpanded(!isExpanded)}
+                                className="w-full p-3 flex items-center justify-between gap-3 text-left"
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium truncate">{pos.beschreibung}</p>
+                                  <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                                    {pos.material && (
+                                      <span className="truncate max-w-[120px]">{pos.material}</span>
+                                    )}
+                                    {pos.menge != null && (
+                                      <span className="whitespace-nowrap">
+                                        {pos.menge} {pos.einheit || ''}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
                                   <StatusBadge status={status} size="sm" />
                                   {hasDetails && (
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <button className="p-1 rounded-full hover:bg-muted/50">
-                                          <Info className="h-4 w-4 text-muted-foreground" />
-                                        </button>
-                                      </TooltipTrigger>
-                                      <TooltipContent className="max-w-xs p-3 space-y-2">
-                                        {pos.einordnung_begruendung && (
-                                          <p className="text-sm">{pos.einordnung_begruendung}</p>
-                                        )}
-                                        {pos.marktpreis_durchschnitt && (
-                                          <p className="text-xs text-muted-foreground">
-                                            Markt: Ø {pos.marktpreis_durchschnitt.toLocaleString('de-DE')}€
-                                          </p>
-                                        )}
-                                      </TooltipContent>
-                                    </Tooltip>
+                                    <div className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>
+                                      <svg className="w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                      </svg>
+                                    </div>
                                   )}
                                 </div>
-                              </div>
-                              <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                                {pos.material && <span>{pos.material}</span>}
-                                {pos.menge != null && (
-                                  <span>{pos.menge} {pos.einheit || ''}</span>
-                                )}
-                              </div>
+                              </button>
+                              
+                              {/* Expandable details */}
+                              {hasDetails && isExpanded && (
+                                <div className="px-3 pb-3 pt-0 space-y-2 border-t border-border/30 bg-muted/30">
+                                  {pos.einordnung_begruendung && (
+                                    <p className="text-sm text-foreground/90 pt-2">{pos.einordnung_begruendung}</p>
+                                  )}
+                                  {pos.marktpreis_durchschnitt && (
+                                    <div className="text-xs text-muted-foreground space-y-0.5 pt-1">
+                                      <p>
+                                        Marktpreis: Ø {pos.marktpreis_durchschnitt.toLocaleString('de-DE')}€
+                                        {pos.marktpreis_min != null && pos.marktpreis_max != null && (
+                                          <span className="ml-1">
+                                            ({pos.marktpreis_min.toLocaleString('de-DE')}–{pos.marktpreis_max.toLocaleString('de-DE')}€)
+                                          </span>
+                                        )}
+                                      </p>
+                                      {pos.abweichung_prozent != null && (
+                                        <p className={pos.abweichung_prozent > 25 ? 'text-red-600' : pos.abweichung_prozent > 10 ? 'text-yellow-600' : 'text-green-600'}>
+                                          Abweichung: {pos.abweichung_prozent > 0 ? '+' : ''}{pos.abweichung_prozent.toFixed(0)}%
+                                        </p>
+                                      )}
+                                    </div>
+                                  )}
+                                  {pos.hinweis && pos.hinweis !== 'Keine weiteren Hinweise' && (
+                                    <p className="text-xs italic text-muted-foreground pt-1">
+                                      💡 {pos.hinweis}
+                                    </p>
+                                  )}
+                                  <p className="text-xs text-muted-foreground/70 pt-1 border-t border-border/30">
+                                    Quelle: {getDataSourceDisplay(pos.datengrundlage, pos.datenquelle)}
+                                  </p>
+                                </div>
+                              )}
                             </div>
                           );
                         })}
                       </div>
 
-                      {/* Footer with data basis */}
-                      <div className="mt-4 pt-4 border-t border-border flex items-start gap-2 text-xs text-muted-foreground">
-                        <Info className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-                        <span>
-                          Basierend auf regionalen Vergleichspositionen
-                          {analysisData.stadt && `, Region ${analysisData.stadt}`}
-                          {analysisData.plz && !analysisData.stadt && `, PLZ ${analysisData.plz}`}
-                          {', '}
-                          {quarter}
-                        </span>
-                      </div>
+                      {/* Footer with transparent data basis */}
+                      {(() => {
+                        const dataSources = aggregateDataSources(doc.positionen || []);
+                        return (
+                          <div className="mt-4 pt-4 border-t border-border space-y-2">
+                            <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                              <Info className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                              <div className="space-y-1">
+                                <p className="font-medium text-foreground/80">
+                                  {dataSources.primary}
+                                </p>
+                                <p>
+                                  {analysisData.stadt && `Region: ${analysisData.stadt}`}
+                                  {analysisData.plz && !analysisData.stadt && `PLZ-Region: ${analysisData.plz.slice(0, 2)}xxx`}
+                                  {(analysisData.stadt || analysisData.plz) && ' • '}
+                                  Stand: {quarter}
+                                </p>
+                                {dataSources.sources.size > 1 && (
+                                  <p className="text-muted-foreground/70">
+                                    Datenquellen: {Array.from(dataSources.sources).join(', ')}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </CardContent>
                   </Card>
 

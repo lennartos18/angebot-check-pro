@@ -35,6 +35,13 @@ export interface GuestAnalysisResult {
     marktpreis_durchschnitt?: number;
     abweichung_prozent?: number;
     gewerk_name?: string;
+    // Neue Felder fuer Bewertungs-Engine
+    einordnung_stufe?: string;
+    einordnung_begruendung?: string;
+    datengrundlage?: string;
+    unsicherheitshinweis?: string;
+    datenquelle?: string;
+    interne_vergleiche?: number;
   }>;
   gesamtpreis: number;
   plausibility_score: number;

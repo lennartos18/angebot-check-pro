@@ -6,22 +6,58 @@ import { StatusBadge } from "@/components/StatusBadge";
 import {
   ArrowLeft,
   Download,
-  FileText,
   Loader2,
   Info,
   TrendingUp,
   TrendingDown,
   Minus,
+  Database,
+  ExternalLink,
+  AlertCircle,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
-type StatusType = "green" | "yellow" | "red";
+// Neue Bewertungsstufen
+type EvaluationLevel = 
+  | "im_regionalen_rahmen"
+  | "leicht_ueber_vergleich"
+  | "auffaellig_hoch"
+  | "auffaellig_niedrig"
+  | "nicht_einordenbar";
+
+// Legacy-Status fuer Rueckwaertskompatibilitaet
+type LegacyStatus = "green" | "yellow" | "red";
+type StatusType = LegacyStatus | EvaluationLevel;
 
 const toStatusType = (status: string | null): StatusType => {
-  if (status === "green" || status === "yellow" || status === "red") {
-    return status;
+  const validStatuses: StatusType[] = [
+    "green", "yellow", "red",
+    "im_regionalen_rahmen", "leicht_ueber_vergleich",
+    "auffaellig_hoch", "auffaellig_niedrig", "nicht_einordenbar"
+  ];
+  if (status && validStatuses.includes(status as StatusType)) {
+    return status as StatusType;
   }
-  return "yellow"; // Default fallback
+  return "nicht_einordenbar";
+};
+
+// Mapping von Bewertungsstufen zu Zaehlung
+const getEvaluationCategory = (status: StatusType): "positive" | "neutral" | "negative" => {
+  switch (status) {
+    case "green":
+    case "im_regionalen_rahmen":
+      return "positive";
+    case "yellow":
+    case "leicht_ueber_vergleich":
+    case "nicht_einordenbar":
+      return "neutral";
+    case "red":
+    case "auffaellig_hoch":
+    case "auffaellig_niedrig":
+      return "negative";
+    default:
+      return "neutral";
+  }
 };
 
 interface Position {
@@ -40,6 +76,13 @@ interface Position {
   marktpreis_max: number | null;
   marktpreis_durchschnitt: number | null;
   abweichung_prozent: number | null;
+  // Neue Felder fuer Bewertungs-Engine
+  einordnung_stufe: string | null;
+  einordnung_begruendung: string | null;
+  datengrundlage: string | null;
+  unsicherheitshinweis: string | null;
+  datenquelle: string | null;
+  interne_vergleiche: number | null;
 }
 
 interface Angebot {
@@ -112,11 +155,9 @@ export function AnalysisView({ angebotId, onBack }: AnalysisViewProps) {
 
       if (error) throw error;
 
-      // Create blob and download
       const blob = new Blob([data.html], { type: "text/html" });
       const url = URL.createObjectURL(blob);
       
-      // Open in new window for printing
       const printWindow = window.open(url, "_blank");
       if (printWindow) {
         printWindow.onload = () => {
@@ -142,9 +183,9 @@ export function AnalysisView({ angebotId, onBack }: AnalysisViewProps) {
 
   const getScoreColor = (score: number | null) => {
     if (!score) return "text-muted-foreground";
-    if (score >= 80) return "text-status-green";
-    if (score >= 60) return "text-status-yellow";
-    return "text-status-red";
+    if (score >= 80) return "text-emerald-600 dark:text-emerald-400";
+    if (score >= 60) return "text-amber-600 dark:text-amber-400";
+    return "text-red-600 dark:text-red-400";
   };
 
   if (loading) {
@@ -157,9 +198,18 @@ export function AnalysisView({ angebotId, onBack }: AnalysisViewProps) {
 
   if (!angebot) return null;
 
-  const greenCount = angebot.positionen?.filter((p) => p.status === "green").length || 0;
-  const yellowCount = angebot.positionen?.filter((p) => p.status === "yellow").length || 0;
-  const redCount = angebot.positionen?.filter((p) => p.status === "red").length || 0;
+  // Zaehlung basierend auf neuen Bewertungsstufen
+  const evaluationCounts = {
+    positive: 0,
+    neutral: 0,
+    negative: 0,
+  };
+
+  angebot.positionen?.forEach((pos) => {
+    const status = toStatusType(pos.einordnung_stufe || pos.status);
+    const category = getEvaluationCategory(status);
+    evaluationCounts[category]++;
+  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -215,7 +265,7 @@ export function AnalysisView({ angebotId, onBack }: AnalysisViewProps) {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-card rounded-xl p-6 border border-border shadow-card"
+            className="bg-card rounded-xl p-6 border border-border shadow-sm"
           >
             <p className="text-sm text-muted-foreground mb-2">Plausibilitäts-Score</p>
             <p className={`text-3xl font-bold ${getScoreColor(angebot.plausibility_score)}`}>
@@ -227,7 +277,7 @@ export function AnalysisView({ angebotId, onBack }: AnalysisViewProps) {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="bg-card rounded-xl p-6 border border-border shadow-card"
+            className="bg-card rounded-xl p-6 border border-border shadow-sm"
           >
             <p className="text-sm text-muted-foreground mb-2">Angebotssumme</p>
             <p className="text-3xl font-bold text-foreground">
@@ -242,23 +292,23 @@ export function AnalysisView({ angebotId, onBack }: AnalysisViewProps) {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="bg-card rounded-xl p-6 border border-border shadow-card col-span-2"
+            className="bg-card rounded-xl p-6 border border-border shadow-sm col-span-2"
           >
-            <p className="text-sm text-muted-foreground mb-3">Positionsbewertung</p>
+            <p className="text-sm text-muted-foreground mb-3">Einordnung der Positionen</p>
             <div className="flex gap-6">
               <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-status-green" />
-                <span className="font-semibold text-foreground">{greenCount}</span>
-                <span className="text-sm text-muted-foreground">Plausibel</span>
+                <span className="w-3 h-3 rounded-full bg-emerald-500" />
+                <span className="font-semibold text-foreground">{evaluationCounts.positive}</span>
+                <span className="text-sm text-muted-foreground">Im Rahmen</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-status-yellow" />
-                <span className="font-semibold text-foreground">{yellowCount}</span>
-                <span className="text-sm text-muted-foreground">Prüfen</span>
+                <span className="w-3 h-3 rounded-full bg-amber-500" />
+                <span className="font-semibold text-foreground">{evaluationCounts.neutral}</span>
+                <span className="text-sm text-muted-foreground">Prüfenswert</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-status-red" />
-                <span className="font-semibold text-foreground">{redCount}</span>
+                <span className="w-3 h-3 rounded-full bg-red-500" />
+                <span className="font-semibold text-foreground">{evaluationCounts.negative}</span>
                 <span className="text-sm text-muted-foreground">Auffällig</span>
               </div>
             </div>
@@ -275,7 +325,7 @@ export function AnalysisView({ angebotId, onBack }: AnalysisViewProps) {
           >
             <h2 className="font-semibold text-foreground mb-2 flex items-center gap-2">
               <Info className="w-5 h-5 text-primary" />
-              Zusammenfassung & Empfehlungen
+              Zusammenfassung
             </h2>
             <p className="text-muted-foreground whitespace-pre-line">
               {angebot.analysis_summary}
@@ -288,7 +338,7 @@ export function AnalysisView({ angebotId, onBack }: AnalysisViewProps) {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
-          className="bg-card rounded-xl border border-border shadow-card overflow-hidden"
+          className="bg-card rounded-xl border border-border shadow-sm overflow-hidden"
         >
           <div className="p-4 border-b border-border">
             <h2 className="font-semibold text-foreground">
@@ -316,86 +366,127 @@ export function AnalysisView({ angebotId, onBack }: AnalysisViewProps) {
                     Gesamt
                   </th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-muted-foreground uppercase">
-                    Status
+                    Einordnung
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {angebot.positionen?.map((pos, idx) => (
-                  <>
-                    <tr key={pos.id} className="hover:bg-muted/30 transition-colors">
-                      <td className="px-4 py-4 text-sm text-muted-foreground">
-                        {pos.position_nummer || idx + 1}
-                      </td>
-                      <td className="px-4 py-4">
-                        <p className="font-medium text-foreground text-sm">
-                          {pos.beschreibung}
-                        </p>
-                        {pos.material && (
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {pos.material}
+                {angebot.positionen?.map((pos, idx) => {
+                  const evaluationStatus = toStatusType(pos.einordnung_stufe || pos.status);
+                  const hasNewEvaluation = !!pos.einordnung_stufe;
+                  
+                  return (
+                    <>
+                      <tr key={pos.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="px-4 py-4 text-sm text-muted-foreground">
+                          {pos.position_nummer || idx + 1}
+                        </td>
+                        <td className="px-4 py-4">
+                          <p className="font-medium text-foreground text-sm">
+                            {pos.beschreibung}
                           </p>
-                        )}
-                      </td>
-                      <td className="px-4 py-4 text-right text-sm text-muted-foreground hidden md:table-cell">
-                        {pos.menge || "-"} {pos.einheit || ""}
-                      </td>
-                      <td className="px-4 py-4 text-right text-sm text-muted-foreground hidden md:table-cell">
-                        {pos.einzelpreis
-                          ? `${pos.einzelpreis.toFixed(2)} €`
-                          : "-"}
-                      </td>
-                      <td className="px-4 py-4 text-right text-sm font-semibold text-foreground">
-                        {pos.gesamtpreis
-                          ? `${pos.gesamtpreis.toFixed(2)} €`
-                          : "-"}
-                      </td>
-                      <td className="px-4 py-4 text-center">
-                        <StatusBadge status={toStatusType(pos.status)} size="sm" />
-                      </td>
-                    </tr>
-                    {/* Hint Row */}
-                    <tr className="bg-muted/20">
-                      <td />
-                      <td colSpan={5} className="px-4 py-3">
-                        <div className="flex flex-wrap items-start gap-4 text-xs">
-                          <div className="flex-1">
-                            <span className="font-medium text-foreground">Hinweis: </span>
-                            <span className="text-muted-foreground">
-                              {pos.hinweis || "Keine Hinweise"}
-                            </span>
-                          </div>
-                          {pos.marktpreis_durchschnitt && (
-                            <div className="text-muted-foreground">
-                              <span className="font-medium">Marktpreis: </span>
-                              {pos.marktpreis_min?.toFixed(2)} - {pos.marktpreis_max?.toFixed(2)} €
-                              <span className="ml-1">(Ø {pos.marktpreis_durchschnitt?.toFixed(2)} €)</span>
-                            </div>
+                          {pos.material && (
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {pos.material}
+                            </p>
                           )}
-                          {pos.abweichung_prozent !== null && (
-                            <div className={`flex items-center gap-1 ${
-                              pos.abweichung_prozent > 15 
-                                ? "text-status-red" 
-                                : pos.abweichung_prozent > 0 
-                                ? "text-status-yellow" 
-                                : "text-status-green"
-                            }`}>
-                              {pos.abweichung_prozent > 0 ? (
-                                <TrendingUp className="w-3 h-3" />
-                              ) : pos.abweichung_prozent < 0 ? (
-                                <TrendingDown className="w-3 h-3" />
-                              ) : (
-                                <Minus className="w-3 h-3" />
+                        </td>
+                        <td className="px-4 py-4 text-right text-sm text-muted-foreground hidden md:table-cell">
+                          {pos.menge || "-"} {pos.einheit || ""}
+                        </td>
+                        <td className="px-4 py-4 text-right text-sm text-muted-foreground hidden md:table-cell">
+                          {pos.einzelpreis
+                            ? `${pos.einzelpreis.toFixed(2)} €`
+                            : "-"}
+                        </td>
+                        <td className="px-4 py-4 text-right text-sm font-semibold text-foreground">
+                          {pos.gesamtpreis
+                            ? `${pos.gesamtpreis.toFixed(2)} €`
+                            : "-"}
+                        </td>
+                        <td className="px-4 py-4 text-center">
+                          <StatusBadge status={evaluationStatus} size="sm" />
+                        </td>
+                      </tr>
+                      {/* Detail Row mit Datengrundlage */}
+                      <tr className="bg-muted/20">
+                        <td />
+                        <td colSpan={5} className="px-4 py-3">
+                          <div className="space-y-2 text-xs">
+                            {/* Begruendung */}
+                            <div className="flex items-start gap-2">
+                              <span className="font-medium text-foreground shrink-0">Einordnung:</span>
+                              <span className="text-muted-foreground">
+                                {pos.einordnung_begruendung || pos.hinweis || "Keine Hinweise"}
+                              </span>
+                            </div>
+                            
+                            {/* Datengrundlage - Neue Anzeige */}
+                            {hasNewEvaluation && pos.datengrundlage && (
+                              <div className="flex items-center gap-2 text-muted-foreground">
+                                <Database className="w-3 h-3 shrink-0" />
+                                <span className="font-medium">Datengrundlage:</span>
+                                <span>{pos.datengrundlage}</span>
+                                {pos.datenquelle === "external_only" && (
+                                  <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                                    <ExternalLink className="w-3 h-3" />
+                                    Externe Referenz
+                                  </span>
+                                )}
+                                {pos.datenquelle === "mixed" && (
+                                  <span className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400">
+                                    <Database className="w-3 h-3" />
+                                    Gemischt
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Unsicherheitshinweis */}
+                            {pos.unsicherheitshinweis && (
+                              <div className="flex items-start gap-2 text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded p-2">
+                                <AlertCircle className="w-3 h-3 shrink-0 mt-0.5" />
+                                <span>{pos.unsicherheitshinweis}</span>
+                              </div>
+                            )}
+
+                            {/* Marktpreis & Abweichung (Legacy-Anzeige) */}
+                            <div className="flex flex-wrap items-center gap-4">
+                              {pos.marktpreis_durchschnitt && (
+                                <div className="text-muted-foreground">
+                                  <span className="font-medium">Vergleichswert: </span>
+                                  {pos.marktpreis_min?.toFixed(2)} - {pos.marktpreis_max?.toFixed(2)} €
+                                  <span className="ml-1">(Ø {pos.marktpreis_durchschnitt?.toFixed(2)} €)</span>
+                                </div>
                               )}
-                              {pos.abweichung_prozent > 0 ? "+" : ""}
-                              {pos.abweichung_prozent?.toFixed(1)}%
+                              {pos.abweichung_prozent !== null && (
+                                <div className={`flex items-center gap-1 ${
+                                  Math.abs(pos.abweichung_prozent) >= 30 
+                                    ? "text-red-600 dark:text-red-400" 
+                                    : Math.abs(pos.abweichung_prozent) >= 15 
+                                    ? "text-amber-600 dark:text-amber-400" 
+                                    : "text-emerald-600 dark:text-emerald-400"
+                                }`}>
+                                  {pos.abweichung_prozent > 0 ? (
+                                    <TrendingUp className="w-3 h-3" />
+                                  ) : pos.abweichung_prozent < 0 ? (
+                                    <TrendingDown className="w-3 h-3" />
+                                  ) : (
+                                    <Minus className="w-3 h-3" />
+                                  )}
+                                  <span className="font-medium">
+                                    {pos.abweichung_prozent > 0 ? "+" : ""}
+                                    {pos.abweichung_prozent?.toFixed(1)}% Abweichung
+                                  </span>
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  </>
-                ))}
+                          </div>
+                        </td>
+                      </tr>
+                    </>
+                  );
+                })}
               </tbody>
               <tfoot>
                 <tr className="bg-muted/50 font-semibold">
@@ -417,6 +508,19 @@ export function AnalysisView({ angebotId, onBack }: AnalysisViewProps) {
               </tfoot>
             </table>
           </div>
+        </motion.div>
+
+        {/* Hinweis zur Datenaktualitaet */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.5 }}
+          className="mt-6 text-xs text-muted-foreground text-center"
+        >
+          <p>
+            Die Preiseinordnung basiert auf Vergleichsdaten der letzten 12 Monate aus der jeweiligen Region.
+            Alle Angaben sind indikativ und ersetzen keine fachliche Beratung.
+          </p>
         </motion.div>
       </main>
     </div>

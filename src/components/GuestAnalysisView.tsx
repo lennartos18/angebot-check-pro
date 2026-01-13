@@ -21,6 +21,9 @@ import {
   CheckCircle,
   XCircle,
   ArrowRight,
+  Database,
+  ExternalLink,
+  HelpCircle,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import type { GuestAnalysisResult } from "./GuestUploadModal";
@@ -31,13 +34,46 @@ interface GuestAnalysisViewProps {
   onLoginRequired: () => void;
 }
 
-type StatusType = "green" | "yellow" | "red";
+// Neue Bewertungsstufen
+type EvaluationLevel = 
+  | "im_regionalen_rahmen"
+  | "leicht_ueber_vergleich"
+  | "auffaellig_hoch"
+  | "auffaellig_niedrig"
+  | "nicht_einordenbar";
+
+type LegacyStatus = "green" | "yellow" | "red";
+type StatusType = LegacyStatus | EvaluationLevel;
 
 const toStatusType = (status: string | null | undefined): StatusType => {
-  if (status === "green" || status === "yellow" || status === "red") {
-    return status;
+  const validStatuses: StatusType[] = [
+    "green", "yellow", "red",
+    "im_regionalen_rahmen", "leicht_ueber_vergleich",
+    "auffaellig_hoch", "auffaellig_niedrig", "nicht_einordenbar"
+  ];
+  if (status && validStatuses.includes(status as StatusType)) {
+    return status as StatusType;
   }
-  return "yellow";
+  return "nicht_einordenbar";
+};
+
+// Kategorisierung fuer Zaehlung
+const getEvaluationCategory = (status: StatusType): "positive" | "neutral" | "negative" => {
+  switch (status) {
+    case "green":
+    case "im_regionalen_rahmen":
+      return "positive";
+    case "yellow":
+    case "leicht_ueber_vergleich":
+    case "nicht_einordenbar":
+      return "neutral";
+    case "red":
+    case "auffaellig_hoch":
+    case "auffaellig_niedrig":
+      return "negative";
+    default:
+      return "neutral";
+  }
 };
 
 export function GuestAnalysisView({ analysis, onClose, onLoginRequired }: GuestAnalysisViewProps) {
@@ -51,29 +87,34 @@ export function GuestAnalysisView({ analysis, onClose, onLoginRequired }: GuestA
   };
 
   const handleLogin = () => {
-    // Store pending action
     localStorage.setItem("pendingAction", loginAction);
     navigate("/auth");
   };
 
-  // Calculate status counts
-  const statusCounts = {
-    green: analysis.positionen.filter(p => p.status === "green").length,
-    yellow: analysis.positionen.filter(p => p.status === "yellow").length,
-    red: analysis.positionen.filter(p => p.status === "red").length,
+  // Zaehlung mit neuen Kategorien
+  const evaluationCounts = {
+    positive: 0,
+    neutral: 0,
+    negative: 0,
   };
+
+  analysis.positionen.forEach((pos) => {
+    const status = toStatusType(pos.einordnung_stufe || pos.status);
+    const category = getEvaluationCategory(status);
+    evaluationCounts[category]++;
+  });
 
   // Determine overall status
   const getOverallStatus = (): StatusType => {
-    if (analysis.plausibility_score >= 80) return "green";
-    if (analysis.plausibility_score >= 50) return "yellow";
-    return "red";
+    if (analysis.plausibility_score >= 80) return "im_regionalen_rahmen";
+    if (analysis.plausibility_score >= 50) return "leicht_ueber_vergleich";
+    return "auffaellig_hoch";
   };
 
   const getScoreColor = (score: number) => {
-    if (score >= 80) return "text-status-green";
-    if (score >= 50) return "text-status-yellow";
-    return "text-status-red";
+    if (score >= 80) return "text-emerald-600 dark:text-emerald-400";
+    if (score >= 50) return "text-amber-600 dark:text-amber-400";
+    return "text-red-600 dark:text-red-400";
   };
 
   return (
@@ -123,19 +164,19 @@ export function GuestAnalysisView({ analysis, onClose, onLoginRequired }: GuestA
                 </p>
               </Card>
               <Card className="p-4">
-                <p className="text-sm text-muted-foreground mb-2">Bewertung</p>
+                <p className="text-sm text-muted-foreground mb-2">Einordnung</p>
                 <div className="flex items-center gap-3 text-sm">
                   <span className="flex items-center gap-1">
-                    <CheckCircle className="w-4 h-4 text-status-green" />
-                    {statusCounts.green}
+                    <CheckCircle className="w-4 h-4 text-emerald-500" />
+                    {evaluationCounts.positive}
                   </span>
                   <span className="flex items-center gap-1">
-                    <AlertCircle className="w-4 h-4 text-status-yellow" />
-                    {statusCounts.yellow}
+                    <AlertCircle className="w-4 h-4 text-amber-500" />
+                    {evaluationCounts.neutral}
                   </span>
                   <span className="flex items-center gap-1">
-                    <XCircle className="w-4 h-4 text-status-red" />
-                    {statusCounts.red}
+                    <XCircle className="w-4 h-4 text-red-500" />
+                    {evaluationCounts.negative}
                   </span>
                 </div>
               </Card>
@@ -179,54 +220,97 @@ export function GuestAnalysisView({ analysis, onClose, onLoginRequired }: GuestA
                           Preis
                         </th>
                         <th className="px-4 py-3 text-center text-xs font-medium text-muted-foreground uppercase">
-                          Status
+                          Einordnung
                         </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      {analysis.positionen.map((pos, idx) => (
-                        <tr key={idx} className="hover:bg-muted/30">
-                          <td className="px-4 py-3">
-                            <p className="font-medium text-foreground text-sm">
-                              {pos.beschreibung}
-                            </p>
-                            {pos.hinweis && (
-                              <p className="text-xs text-muted-foreground mt-1">
-                                💡 {pos.hinweis}
+                      {analysis.positionen.map((pos, idx) => {
+                        const evaluationStatus = toStatusType(pos.einordnung_stufe || pos.status);
+                        
+                        return (
+                          <tr key={idx} className="hover:bg-muted/30">
+                            <td className="px-4 py-3">
+                              <p className="font-medium text-foreground text-sm">
+                                {pos.beschreibung}
                               </p>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-right text-sm text-muted-foreground">
-                            {pos.menge} {pos.einheit}
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            <p className="font-medium text-foreground text-sm">
-                              {pos.gesamtpreis?.toLocaleString("de-DE")}€
-                            </p>
-                            {pos.abweichung_prozent !== undefined && pos.abweichung_prozent !== 0 && (
-                              <p className={`text-xs flex items-center justify-end gap-1 ${
-                                pos.abweichung_prozent > 0 ? "text-status-red" : "text-status-green"
-                              }`}>
-                                {pos.abweichung_prozent > 0 ? (
-                                  <TrendingUp className="w-3 h-3" />
-                                ) : pos.abweichung_prozent < 0 ? (
-                                  <TrendingDown className="w-3 h-3" />
-                                ) : (
-                                  <Minus className="w-3 h-3" />
-                                )}
-                                {pos.abweichung_prozent > 0 ? "+" : ""}{pos.abweichung_prozent}%
+                              {/* Datengrundlage-Anzeige */}
+                              {pos.datengrundlage && (
+                                <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">
+                                  <Database className="w-3 h-3" />
+                                  <span>{pos.datengrundlage}</span>
+                                  {pos.datenquelle === "external_only" && (
+                                    <ExternalLink className="w-3 h-3 text-amber-500" />
+                                  )}
+                                </div>
+                              )}
+                              {pos.hinweis && !pos.einordnung_begruendung && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  💡 {pos.hinweis}
+                                </p>
+                              )}
+                              {pos.einordnung_begruendung && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {pos.einordnung_begruendung}
+                                </p>
+                              )}
+                              {/* Unsicherheitshinweis */}
+                              {pos.unsicherheitshinweis && (
+                                <div className="flex items-start gap-1.5 mt-1 text-xs text-amber-600 dark:text-amber-400">
+                                  <AlertCircle className="w-3 h-3 shrink-0 mt-0.5" />
+                                  <span>{pos.unsicherheitshinweis}</span>
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-right text-sm text-muted-foreground">
+                              {pos.menge} {pos.einheit}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <p className="font-medium text-foreground text-sm">
+                                {pos.gesamtpreis?.toLocaleString("de-DE")}€
                               </p>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            <StatusBadge status={toStatusType(pos.status)} size="sm" />
-                          </td>
-                        </tr>
-                      ))}
+                              {pos.abweichung_prozent !== undefined && pos.abweichung_prozent !== 0 && (
+                                <p className={`text-xs flex items-center justify-end gap-1 ${
+                                  Math.abs(pos.abweichung_prozent) >= 30 
+                                    ? "text-red-600 dark:text-red-400" 
+                                    : Math.abs(pos.abweichung_prozent) >= 15
+                                    ? "text-amber-600 dark:text-amber-400"
+                                    : "text-emerald-600 dark:text-emerald-400"
+                                }`}>
+                                  {pos.abweichung_prozent > 0 ? (
+                                    <TrendingUp className="w-3 h-3" />
+                                  ) : pos.abweichung_prozent < 0 ? (
+                                    <TrendingDown className="w-3 h-3" />
+                                  ) : (
+                                    <Minus className="w-3 h-3" />
+                                  )}
+                                  {pos.abweichung_prozent > 0 ? "+" : ""}{pos.abweichung_prozent}%
+                                </p>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <StatusBadge status={evaluationStatus} size="sm" />
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
               </Card>
+            </motion.div>
+
+            {/* Hinweis zur Datenaktualitaet */}
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.25 }}
+              className="text-xs text-muted-foreground text-center"
+            >
+              <p>
+                Die Preiseinordnung basiert auf Vergleichsdaten der letzten 12 Monate.
+                Alle Angaben sind indikativ und ersetzen keine fachliche Beratung.
+              </p>
             </motion.div>
 
             {/* Premium CTA */}
@@ -305,15 +389,15 @@ export function GuestAnalysisView({ analysis, onClose, onLoginRequired }: GuestA
               <p className="font-medium text-sm text-foreground">Das bekommen Sie kostenlos:</p>
               <ul className="text-sm text-muted-foreground space-y-1">
                 <li className="flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 text-status-green" />
+                  <CheckCircle className="w-4 h-4 text-emerald-500" />
                   Unbegrenzte Analysen
                 </li>
                 <li className="flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 text-status-green" />
+                  <CheckCircle className="w-4 h-4 text-emerald-500" />
                   PDF-Export aller Analysen
                 </li>
                 <li className="flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 text-status-green" />
+                  <CheckCircle className="w-4 h-4 text-emerald-500" />
                   Dashboard zum Vergleichen
                 </li>
               </ul>

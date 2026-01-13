@@ -1,4 +1,3 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -31,6 +30,13 @@ interface AnalysisResult {
     marktpreis_durchschnitt?: number;
     abweichung_prozent?: number;
     gewerk_name?: string;
+    // Neue Felder fuer Bewertungs-Engine
+    einordnung_stufe?: string;
+    einordnung_begruendung?: string;
+    datengrundlage?: string;
+    unsicherheitshinweis?: string;
+    datenquelle?: string;
+    interne_vergleiche?: number;
   }>;
   gesamtpreis: number;
   plausibility_score: number;
@@ -39,20 +45,54 @@ interface AnalysisResult {
   titel?: string;
 }
 
-serve(async (req) => {
+interface EvaluationResult {
+  evaluation_level: string;
+  evaluation_reason: string;
+  data_basis_description: string;
+  uncertainty_note?: string;
+  data_source: string;
+  internal_count: number;
+  external_source_name?: string;
+  statistics?: {
+    quartile_1: number;
+    median: number;
+    quartile_3: number;
+  };
+  deviation_percent: number | null;
+}
+
+// Mapping von alten Status zu neuen Bewertungsstufen
+function mapStatusToEvaluationLevel(status: string, abweichungProzent?: number): string {
+  if (abweichungProzent !== undefined) {
+    if (abweichungProzent <= -25) return "auffaellig_niedrig";
+    if (abweichungProzent >= 30) return "auffaellig_hoch";
+    if (abweichungProzent > 15) return "leicht_ueber_vergleich";
+  }
+  
+  switch (status) {
+    case "green": return "im_regionalen_rahmen";
+    case "yellow": return "leicht_ueber_vergleich";
+    case "red": return "auffaellig_hoch";
+    default: return "nicht_einordenbar";
+  }
+}
+
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { angebotId, extractedText, extractedPositionen, fileBase64, fileType } = await req.json();
+    const { angebotId, extractedText, extractedPositionen, fileBase64, fileType, plz, guestMode } = await req.json();
     
     console.log("Received request:", { 
       hasAngebotId: !!angebotId, 
       hasExtractedText: !!extractedText, 
       hasExtractedPositionen: !!extractedPositionen,
       hasFileBase64: !!fileBase64,
-      fileType: fileType || "none"
+      fileType: fileType || "none",
+      plz: plz || "none",
+      guestMode: !!guestMode
     });
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
@@ -77,35 +117,43 @@ serve(async (req) => {
     const { data: gewerke } = await supabase.from("gewerke").select("*");
     const gewerkeList = gewerke?.map(g => g.name).join(", ") || "";
 
-    const systemPrompt = `Du bist ein Experte für die Analyse von Handwerker-Angeboten in Deutschland. 
-Du prüfst Angebote auf Plausibilität und vergleichst Preise mit Marktdaten.
+    // Neues System-Prompt gemaess Bewertungs-Charta
+    const systemPrompt = `Du bist ein Experte für die Analyse von Handwerker-Angeboten in Deutschland.
 
 DEINE AUFGABE:
-1. Analysiere jede Position des Angebots
-2. Vergleiche mit den Marktpreisen (wenn verfügbar)
-3. Bewerte jede Position mit einem Status:
-   - "green": Preis ist plausibel und marktüblich
-   - "yellow": Preis liegt 15-30% über Durchschnitt, nachfragen empfohlen
-   - "red": Preis liegt >30% über Durchschnitt oder ist auffällig
-4. Gib konkrete, hilfreiche Hinweise
+1. Extrahiere ALLE Positionen des Angebots vollständig
+2. Identifiziere für jede Position: Beschreibung, Material, Menge, Einheit, Einzelpreis, Gesamtpreis
+3. Ordne jede Position einer der 5 Bewertungsstufen zu
 
-MARKTPREIS-REFERENZDATEN:
+BEWERTUNGSSTUFEN (verbindlich, exklusiv):
+- "im_regionalen_rahmen": Preis entspricht dem regionalen Vergleichswert
+- "leicht_ueber_vergleich": Preis liegt leicht über dem Durchschnitt (15-25% über Median)
+- "auffaellig_hoch": Preis liegt ≥30% über dem regionalen Vergleich
+- "auffaellig_niedrig": Preis liegt ≥25% unter dem regionalen Vergleich
+- "nicht_einordenbar": Keine ausreichenden Vergleichsdaten verfügbar
+
+GRUNDPRINZIPIEN:
+- Keine Kauf- oder Auftragsempfehlungen
+- Keine rechtlichen Bewertungen
+- Keine Aussagen über Seriosität von Betrieben
+- Alle Aussagen sind indikativ, nicht absolut
+- Bewertungen erfolgen positionsbezogen
+
+MARKTPREIS-REFERENZDATEN (letzte 12 Monate):
 ${marktpreisInfo}
 
 VERFÜGBARE GEWERKE: ${gewerkeList}
 
-WICHTIG:
-- Sei fair aber kritisch
-- Berücksichtige regionale Unterschiede
-- Beachte Materialqualität
-- Gib praktische Verhandlungstipps`;
+Für jede Position gib auch die alte "status" Ampelfarbe an für Rückwärtskompatibilität:
+- "green" = im_regionalen_rahmen
+- "yellow" = leicht_ueber_vergleich / nicht_einordenbar
+- "red" = auffaellig_hoch / auffaellig_niedrig`;
 
-    // Build user message content - use Vision for images/PDFs, text otherwise
+    // Build user message content
     let userMessageContent: any;
     
     if (fileBase64 && fileType) {
       console.log("Using Vision mode for document analysis");
-      // For images and PDFs, use multimodal Vision capabilities
       const textInstruction = `Analysiere dieses Handwerker-Angebot im Detail. 
 Extrahiere ALLE Positionen mit:
 - Beschreibung der Leistung
@@ -114,7 +162,8 @@ Extrahiere ALLE Positionen mit:
 - Einzelpreis und Gesamtpreis
 
 Wichtig: Lies das Dokument vollständig und extrahiere die echten Daten daraus!
-${extractedText ? `Zusätzliche Info: ${extractedText}` : ""}`;
+${extractedText ? `Zusätzliche Info: ${extractedText}` : ""}
+${plz ? `PLZ/Region: ${plz}` : ""}`;
       
       userMessageContent = [
         { type: "text", text: textInstruction },
@@ -162,6 +211,7 @@ ${extractedText ? `Zusätzliche Info: ${extractedText}` : ""}`;
                         einheit: { type: "string" },
                         einzelpreis: { type: "number" },
                         gesamtpreis: { type: "number" },
+                        // Legacy-Felder
                         status: { type: "string", enum: ["green", "yellow", "red"] },
                         plausibility_score: { type: "number", description: "0-100" },
                         hinweis: { type: "string", description: "Konkreter Hinweis für den Kunden" },
@@ -169,14 +219,25 @@ ${extractedText ? `Zusätzliche Info: ${extractedText}` : ""}`;
                         marktpreis_max: { type: "number" },
                         marktpreis_durchschnitt: { type: "number" },
                         abweichung_prozent: { type: "number" },
-                        gewerk_name: { type: "string", description: "Zugehöriges Gewerk" },
+                        gewerk_name: { type: "string" },
+                        // Neue Bewertungs-Engine Felder
+                        einordnung_stufe: { 
+                          type: "string", 
+                          enum: ["im_regionalen_rahmen", "leicht_ueber_vergleich", "auffaellig_hoch", "auffaellig_niedrig", "nicht_einordenbar"],
+                          description: "Die verbindliche Bewertungsstufe"
+                        },
+                        einordnung_begruendung: { type: "string", description: "Kurze Begründung der Einordnung (1-2 Sätze)" },
+                        datengrundlage: { type: "string", description: "z.B. 'Referenz: Marktdaten Handwerk, bundesweit'" },
                       },
-                      required: ["beschreibung", "status", "plausibility_score", "hinweis"],
+                      required: ["beschreibung", "status", "plausibility_score", "hinweis", "einordnung_stufe", "einordnung_begruendung"],
                     },
                   },
                   gesamtpreis: { type: "number" },
                   plausibility_score: { type: "number", description: "Gesamt-Score 0-100" },
-                  analysis_summary: { type: "string", description: "Zusammenfassung der Analyse mit Handlungsempfehlungen" },
+                  analysis_summary: { 
+                    type: "string", 
+                    description: "Sachliche Zusammenfassung ohne Empfehlungen. Beschreibe nur die Einordnung der Positionen." 
+                  },
                 },
                 required: ["positionen", "gesamtpreis", "plausibility_score", "analysis_summary"],
               },
@@ -214,8 +275,32 @@ ${extractedText ? `Zusätzliche Info: ${extractedText}` : ""}`;
 
     const analysisResult: AnalysisResult = JSON.parse(toolCall.function.arguments);
 
-    // Update angebot with analysis results if angebotId provided
-    if (angebotId) {
+    // Ergänze fehlende Bewertungsfelder
+    analysisResult.positionen = analysisResult.positionen.map(pos => {
+      // Falls einordnung_stufe fehlt, aus status ableiten
+      if (!pos.einordnung_stufe) {
+        pos.einordnung_stufe = mapStatusToEvaluationLevel(pos.status, pos.abweichung_prozent);
+      }
+      
+      // Falls einordnung_begruendung fehlt, aus hinweis übernehmen
+      if (!pos.einordnung_begruendung && pos.hinweis) {
+        pos.einordnung_begruendung = pos.hinweis;
+      }
+      
+      // Datengrundlage ergänzen wenn nicht vorhanden
+      if (!pos.datengrundlage) {
+        if (pos.marktpreis_durchschnitt) {
+          pos.datengrundlage = "Referenz: Marktdaten, bundesweit, letzte 12 Monate";
+        } else {
+          pos.datengrundlage = "Keine Vergleichsdaten verfügbar";
+        }
+      }
+      
+      return pos;
+    });
+
+    // Update angebot with analysis results if angebotId provided (not guest mode)
+    if (angebotId && !guestMode) {
       // Update angebot
       await supabase
         .from("angebote")
@@ -233,7 +318,7 @@ ${extractedText ? `Zusätzliche Info: ${extractedText}` : ""}`;
       const { data: gewerkeData } = await supabase.from("gewerke").select("id, name");
       const gewerkeMap = new Map(gewerkeData?.map(g => [g.name.toLowerCase(), g.id]) || []);
 
-      // Insert positions
+      // Insert positions mit neuen Bewertungsfeldern
       const positionenToInsert = analysisResult.positionen.map((pos, idx) => ({
         angebot_id: angebotId,
         position_nummer: idx + 1,
@@ -251,6 +336,13 @@ ${extractedText ? `Zusätzliche Info: ${extractedText}` : ""}`;
         marktpreis_max: pos.marktpreis_max,
         marktpreis_durchschnitt: pos.marktpreis_durchschnitt,
         abweichung_prozent: pos.abweichung_prozent,
+        // Neue Felder
+        einordnung_stufe: pos.einordnung_stufe,
+        einordnung_begruendung: pos.einordnung_begruendung,
+        datengrundlage: pos.datengrundlage,
+        unsicherheitshinweis: pos.unsicherheitshinweis,
+        datenquelle: pos.datenquelle || "external_only",
+        interne_vergleiche: pos.interne_vergleiche || 0,
       }));
 
       await supabase.from("positionen").insert(positionenToInsert);

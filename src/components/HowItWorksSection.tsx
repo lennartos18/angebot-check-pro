@@ -24,7 +24,10 @@ const steps = [
 
 export function HowItWorksSection() {
   return (
-    <section className="py-20 bg-background">
+    <section className="py-24 bg-background relative">
+      {/* Top border */}
+      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
+      
       <div className="container mx-auto px-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -79,6 +82,9 @@ export function HowItWorksSection() {
           ))}
         </div>
       </div>
+      
+      {/* Bottom border */}
+      <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
     </section>
   );
 }

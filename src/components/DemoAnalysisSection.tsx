@@ -84,7 +84,7 @@ function getDeviationColor(deviation: string) {
 
 export function DemoAnalysisSection() {
   return (
-    <section id="demo" className="py-20 bg-muted/30">
+    <section id="demo" className="py-24 bg-[hsl(var(--section-alt))] relative">
       <div className="container mx-auto px-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}

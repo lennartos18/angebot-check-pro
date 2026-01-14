@@ -82,7 +82,9 @@ interface EmbeddingMatch {
 
 // Constants
 const CONFIDENCE_THRESHOLD = 70;
-const EMBEDDING_SIMILARITY_THRESHOLD = 0.75;
+// Local embeddings have lower similarity scores than ML-based embeddings
+// Threshold 0.35 works well for our local trigram/word-based embeddings
+const EMBEDDING_SIMILARITY_THRESHOLD = 0.35;
 
 // Kfz-spezifische Keywords für Ersatzteil-Klassifikation
 const OEM_KEYWORDS = [
@@ -324,6 +326,11 @@ function generateEmbedding(text: string): number[] {
   return createSemanticEmbedding(text);
 }
 
+// Convert embedding array to PostgreSQL vector format: [0.1, 0.2, ...] 
+function toVectorString(embedding: number[]): string {
+  return `[${embedding.join(',')}]`;
+}
+
 // NEW: Find match using embedding similarity
 async function findEmbeddingMatch(
   supabase: SupabaseClient,
@@ -333,19 +340,28 @@ async function findEmbeddingMatch(
 ): Promise<EmbeddingMatch | null> {
   const rpcName = matchType === 'service' ? 'match_services' : 'match_materials';
   
+  // PostgreSQL pgvector expects the vector as a string in format: [0.1, 0.2, ...]
+  const vectorString = toVectorString(embedding);
+  
+  console.log(`[normalize-position] Calling ${rpcName} with vector dim=${embedding.length}, domain=${serviceDomain}`);
+  
   const { data, error } = await supabase.rpc(rpcName, {
-    query_embedding: JSON.stringify(embedding),
+    query_embedding: vectorString,
     match_threshold: EMBEDDING_SIMILARITY_THRESHOLD,
-    match_count: 1,
+    match_count: 3,
     target_service_domain: serviceDomain
   });
 
   if (error) {
     console.error(`[normalize-position] Error in ${rpcName}:`, error);
+    console.error(`[normalize-position] Error details:`, JSON.stringify(error));
     return null;
   }
 
+  console.log(`[normalize-position] ${rpcName} returned ${data?.length || 0} matches`);
+  
   if (data && data.length > 0) {
+    console.log(`[normalize-position] Best match: ${data[0].name} (similarity: ${data[0].similarity})`);
     return data[0] as EmbeddingMatch;
   }
 
@@ -361,9 +377,12 @@ async function savePositionEmbedding(
   if (!positionId) return;
   
   try {
+    // PostgreSQL pgvector expects the vector as a string in format: [0.1, 0.2, ...]
+    const vectorString = toVectorString(embedding);
+    
     await supabase
       .from('document_positions')
-      .update({ embedding: JSON.stringify(embedding) })
+      .update({ embedding: vectorString })
       .eq('id', positionId);
   } catch (error) {
     console.error('[normalize-position] Error saving position embedding:', error);
@@ -729,39 +748,42 @@ async function normalizePosition(
       await savePositionEmbedding(supabase, input.position_id, embedding);
     }
     
-    // Determine what to search based on position type
-    let embeddingMatch: EmbeddingMatch | null = null;
+    // ALWAYS try BOTH services AND materials - semantic matching can find cross-category matches
+    // E.g., "Ölfilter wechseln" (classified as material) should match "Ölwechsel" (service)
+    const [serviceMatch, materialMatch] = await Promise.all([
+      findEmbeddingMatch(supabase, embedding, input.service_domain, 'service'),
+      findEmbeddingMatch(supabase, embedding, input.service_domain, 'material')
+    ]);
     
-    if (positionType === 'arbeitszeit' || positionType === 'pauschale') {
-      embeddingMatch = await findEmbeddingMatch(supabase, embedding, input.service_domain, 'service');
-    } else if (positionType === 'material' || positionType === 'ersatzteil') {
-      embeddingMatch = await findEmbeddingMatch(supabase, embedding, input.service_domain, 'material');
-    } else {
-      // Try both for 'sonstig'
-      const serviceMatch = await findEmbeddingMatch(supabase, embedding, input.service_domain, 'service');
-      const materialMatch = await findEmbeddingMatch(supabase, embedding, input.service_domain, 'material');
-      
-      if (serviceMatch && materialMatch) {
-        embeddingMatch = serviceMatch.similarity >= materialMatch.similarity ? serviceMatch : materialMatch;
+    console.log(`[normalize-position] Service match: ${serviceMatch?.name || 'none'} (${serviceMatch?.similarity?.toFixed(3) || 0})`);
+    console.log(`[normalize-position] Material match: ${materialMatch?.name || 'none'} (${materialMatch?.similarity?.toFixed(3) || 0})`);
+    
+    // Pick the best match across both categories
+    let embeddingMatch: EmbeddingMatch | null = null;
+    let matchIsService = false;
+    
+    if (serviceMatch && materialMatch) {
+      if (serviceMatch.similarity >= materialMatch.similarity) {
+        embeddingMatch = serviceMatch;
+        matchIsService = true;
       } else {
-        embeddingMatch = serviceMatch || materialMatch;
+        embeddingMatch = materialMatch;
+        matchIsService = false;
       }
+    } else if (serviceMatch) {
+      embeddingMatch = serviceMatch;
+      matchIsService = true;
+    } else if (materialMatch) {
+      embeddingMatch = materialMatch;
+      matchIsService = false;
     }
     
     if (embeddingMatch && embeddingMatch.similarity >= EMBEDDING_SIMILARITY_THRESHOLD) {
-      console.log(`[normalize-position] ✓ EMBEDDING match: ${embeddingMatch.name} (similarity: ${embeddingMatch.similarity.toFixed(3)})`);
+      console.log(`[normalize-position] ✓ EMBEDDING match: ${embeddingMatch.name} (similarity: ${embeddingMatch.similarity.toFixed(3)}, type: ${matchIsService ? 'service' : 'material'})`);
       
-      // Determine if it's a service or material match
-      if (positionType === 'arbeitszeit' || positionType === 'pauschale' || positionType === 'sonstig') {
-        // Check if this is a service
-        const isService = services.some(s => s.id === embeddingMatch!.id);
-        if (isService) {
-          normalizedServiceId = embeddingMatch.id;
-          normalizedServiceName = embeddingMatch.name;
-        } else {
-          normalizedMaterialId = embeddingMatch.id;
-          normalizedMaterialName = embeddingMatch.name;
-        }
+      if (matchIsService) {
+        normalizedServiceId = embeddingMatch.id;
+        normalizedServiceName = embeddingMatch.name;
       } else {
         normalizedMaterialId = embeddingMatch.id;
         normalizedMaterialName = embeddingMatch.name;

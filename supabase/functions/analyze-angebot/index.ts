@@ -223,7 +223,7 @@ Antworte IMMER als valides JSON mit dieser Struktur:
       body: JSON.stringify({
         model: 'google/gemini-2.5-flash',
         messages,
-        temperature: 0.3,
+        temperature: 0, // Deterministisch für konsistente Ergebnisse
         max_tokens: 4000,
       }),
     });

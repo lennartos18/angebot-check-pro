@@ -122,10 +122,18 @@ serve(async (req) => {
       if (!extractResponse.ok) {
         const errorText = await extractResponse.text();
         console.error('extract-pdf Fehler:', extractResponse.status, errorText);
-        throw new Error('PDF-Extraktion fehlgeschlagen');
+        throw new Error(`PDF-Extraktion fehlgeschlagen: ${errorText}`);
       }
       
-      const extractResult = await extractResponse.json();
+      const extractJson = await extractResponse.json();
+      console.log('extract-pdf Response:', JSON.stringify(extractJson).substring(0, 500));
+      
+      // Handle response structure: { success: true, data: { ... } } or direct data
+      if (!extractJson.success) {
+        throw new Error(`PDF-Extraktion fehlgeschlagen: ${extractJson.error || 'Unbekannter Fehler'}`);
+      }
+      
+      const extractResult = extractJson.data || extractJson;
       console.log('PDF-Extraktion erfolgreich, Positionen:', extractResult.positionen?.length || 0);
       
       // Use extracted text for analysis
@@ -138,23 +146,25 @@ serve(async (req) => {
           (p.gesamtpreis ? ` | Gesamt: ${p.gesamtpreis}€` : '')
         ).join('\n');
         
+        // Use correct field names from extract-pdf response
         documentContent = `EXTRAHIERTE DOKUMENTDATEN:
-Firma: ${extractResult.firma || 'Unbekannt'}
+Firma: ${extractResult.handwerker_firma || extractResult.firma || 'Unbekannt'}
 Datum: ${extractResult.datum || 'Unbekannt'}
-Dokumentnummer: ${extractResult.dokumentnummer || 'Unbekannt'}
+Dokumentnummer: ${extractResult.angebots_nummer || extractResult.dokumentnummer || 'Unbekannt'}
 
 POSITIONEN:
 ${positionsText}
 
 SUMMEN:
-Netto: ${extractResult.summe_netto || 'Unbekannt'}€
-MwSt: ${extractResult.mwst_betrag || 'Unbekannt'}€
-Brutto: ${extractResult.summe_brutto || 'Unbekannt'}€`;
+Netto: ${extractResult.gesamtsumme_netto || extractResult.summe_netto || 'Unbekannt'}€
+MwSt: ${extractResult.mwst || extractResult.mwst_betrag || 'Unbekannt'}€
+Brutto: ${extractResult.gesamtsumme_brutto || extractResult.summe_brutto || 'Unbekannt'}€`;
         
         // Clear imageBase64 since we now have text content
         imageBase64 = null;
         console.log('PDF in Text konvertiert, Länge:', documentContent.length);
       } else {
+        console.error('Keine Positionen in extractResult:', JSON.stringify(extractResult).substring(0, 500));
         throw new Error('PDF enthält keine extrahierbaren Positionen');
       }
     }

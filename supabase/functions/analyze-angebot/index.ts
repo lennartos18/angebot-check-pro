@@ -365,13 +365,36 @@ Antworte IMMER als valides JSON mit dieser Struktur:
     if (!response.ok) {
       const errorText = await response.text();
       console.error('AI Gateway Fehler:', response.status, errorText);
+      if (response.status === 429) {
+        throw new Error('Rate-Limit erreicht. Bitte versuche es in einer Minute erneut.');
+      }
+      if (response.status === 402) {
+        throw new Error('AI-Credits aufgebraucht. Bitte lade dein Konto auf.');
+      }
       throw new Error(`AI Gateway Fehler: ${response.status}`);
     }
 
-    const aiResult = await response.json();
+    // Parse response body safely
+    const responseText = await response.text();
+    console.log('AI Response length:', responseText.length);
+    
+    if (!responseText || responseText.length === 0) {
+      console.error('AI Gateway returned empty response');
+      throw new Error('KI-Antwort war leer. Bitte erneut versuchen.');
+    }
+
+    let aiResult;
+    try {
+      aiResult = JSON.parse(responseText);
+    } catch (parseErr) {
+      console.error('Failed to parse AI response:', responseText.substring(0, 500));
+      throw new Error('KI-Antwort konnte nicht verarbeitet werden. Bitte erneut versuchen.');
+    }
+
     const content = aiResult.choices?.[0]?.message?.content;
 
     if (!content) {
+      console.error('AI response structure invalid:', JSON.stringify(aiResult).substring(0, 500));
       throw new Error('Keine Antwort von der KI erhalten');
     }
 

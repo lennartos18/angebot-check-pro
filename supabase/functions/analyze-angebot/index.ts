@@ -274,7 +274,7 @@ Antworte IMMER als valides JSON mit dieser Struktur:
         model: 'google/gemini-2.5-flash',
         messages,
         temperature: 0, // Deterministisch für konsistente Ergebnisse
-        max_tokens: 4000,
+        max_tokens: 8000, // Erhöht von 4000 für längere Dokumente
       }),
     });
 
@@ -291,9 +291,9 @@ Antworte IMMER als valides JSON mit dieser Struktur:
       throw new Error('Keine Antwort von der KI erhalten');
     }
 
-    console.log('AI-Antwort erhalten, parse JSON...');
+    console.log('AI-Antwort erhalten, Länge:', content.length);
 
-    // Parse the JSON response
+    // Parse the JSON response with robust error recovery
     let analysisResult: AnalysisResult;
     try {
       // Clean up the response - remove markdown code blocks if present
@@ -308,11 +308,79 @@ Antworte IMMER als valides JSON mit dieser Struktur:
       }
       cleanContent = cleanContent.trim();
 
-      analysisResult = JSON.parse(cleanContent);
+      // Try to fix truncated JSON by finding the last complete position
+      try {
+        analysisResult = JSON.parse(cleanContent);
+      } catch (initialParseError) {
+        console.log('Initial parse failed, attempting JSON repair...');
+        
+        // Find the last complete position object (ends with })
+        const positionenMatch = cleanContent.match(/"positionen"\s*:\s*\[/);
+        if (positionenMatch) {
+          const positionenStart = cleanContent.indexOf(positionenMatch[0]) + positionenMatch[0].length;
+          const beforePositionen = cleanContent.substring(0, positionenStart);
+          const positionenContent = cleanContent.substring(positionenStart);
+          
+          // Find the last complete position object
+          let lastCompletePos = -1;
+          let braceCount = 0;
+          let inString = false;
+          let escapeNext = false;
+          
+          for (let i = 0; i < positionenContent.length; i++) {
+            const char = positionenContent[i];
+            
+            if (escapeNext) {
+              escapeNext = false;
+              continue;
+            }
+            
+            if (char === '\\') {
+              escapeNext = true;
+              continue;
+            }
+            
+            if (char === '"' && !escapeNext) {
+              inString = !inString;
+              continue;
+            }
+            
+            if (!inString) {
+              if (char === '{') braceCount++;
+              if (char === '}') {
+                braceCount--;
+                if (braceCount === 0) {
+                  lastCompletePos = i;
+                }
+              }
+            }
+          }
+          
+          if (lastCompletePos > 0) {
+            // Reconstruct valid JSON with complete positions
+            const validPositionen = positionenContent.substring(0, lastCompletePos + 1);
+            const repairedJson = beforePositionen + validPositionen + ']}';
+            console.log('Repaired JSON length:', repairedJson.length);
+            
+            try {
+              analysisResult = JSON.parse(repairedJson);
+              console.log('JSON repair successful, positions:', analysisResult.positionen?.length);
+            } catch (repairError) {
+              // If repair fails, try to extract what we can
+              throw initialParseError;
+            }
+          } else {
+            throw initialParseError;
+          }
+        } else {
+          throw initialParseError;
+        }
+      }
     } catch (parseError) {
       console.error('JSON Parse Fehler:', parseError);
-      console.error('Rohe Antwort:', content.substring(0, 500));
-      throw new Error('Konnte KI-Antwort nicht parsen');
+      console.error('Rohe Antwort (erste 1000 Zeichen):', content.substring(0, 1000));
+      console.error('Rohe Antwort (letzte 500 Zeichen):', content.substring(content.length - 500));
+      throw new Error('Konnte KI-Antwort nicht parsen - Dokument möglicherweise zu komplex');
     }
 
     // Ensure all positions have required fields with defaults

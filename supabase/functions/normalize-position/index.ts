@@ -234,38 +234,94 @@ async function findLearnedNormalization(
   return null;
 }
 
-// NEW: Generate embedding via Lovable AI Gateway
-async function generateEmbedding(text: string): Promise<number[] | null> {
-  const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-  if (!LOVABLE_API_KEY) {
-    console.warn('[normalize-position] LOVABLE_API_KEY not configured, skipping embedding');
-    return null;
+// Simple string hash function
+function hashString(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
   }
+  return Math.abs(hash);
+}
 
-  try {
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'text-embedding-3-small',
-        input: [text],
-      }),
-    });
-
-    if (!response.ok) {
-      console.error(`[normalize-position] Embedding API error: ${response.status}`);
-      return null;
+// Local semantic embedding (512 dimensions) - no external API needed
+function createSemanticEmbedding(text: string): number[] {
+  const normalized = text.toLowerCase()
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  
+  const words = normalized.split(' ').filter(w => w.length > 1);
+  const embedding = new Array(512).fill(0);
+  
+  // Character trigram features (captures spelling similarities)
+  const trigrams = new Set<string>();
+  for (const word of words) {
+    for (let i = 0; i <= word.length - 3; i++) {
+      trigrams.add(word.substring(i, i + 3));
     }
-
-    const data = await response.json();
-    return data.data?.[0]?.embedding || null;
-  } catch (error) {
-    console.error('[normalize-position] Error generating embedding:', error);
-    return null;
   }
+  
+  for (const trigram of trigrams) {
+    const idx = hashString(trigram) % 256;
+    embedding[idx] += 1;
+  }
+  
+  // Word presence features
+  for (const word of words) {
+    const idx = 256 + (hashString(word) % 256);
+    embedding[idx] += 1;
+  }
+  
+  // Common automotive/construction term boosting
+  const domainTerms: Record<string, number[]> = {
+    'oel': [0, 1, 2],
+    'oil': [0, 1, 2],
+    'filter': [3, 4, 5],
+    'wechsel': [6, 7, 8],
+    'wechseln': [6, 7, 8],
+    'austausch': [6, 7, 8],
+    'motor': [9, 10, 11],
+    'bremse': [12, 13, 14],
+    'brems': [12, 13, 14],
+    'farbe': [15, 16, 17],
+    'streichen': [18, 19, 20],
+    'anstrich': [18, 19, 20],
+    'montage': [21, 22, 23],
+    'montieren': [21, 22, 23],
+    'einbau': [21, 22, 23],
+    'reparatur': [24, 25, 26],
+    'reparieren': [24, 25, 26],
+    'service': [27, 28, 29],
+    'wartung': [27, 28, 29],
+    'inspektion': [27, 28, 29],
+  };
+  
+  for (const word of words) {
+    const indices = domainTerms[word];
+    if (indices) {
+      for (const idx of indices) {
+        embedding[idx] += 2;
+      }
+    }
+  }
+  
+  // Normalize
+  const magnitude = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
+  if (magnitude > 0) {
+    for (let i = 0; i < embedding.length; i++) {
+      embedding[i] /= magnitude;
+    }
+  }
+  
+  return embedding;
+}
+
+// Generate embedding locally (no external API)
+function generateEmbedding(text: string): number[] {
+  return createSemanticEmbedding(text);
 }
 
 // NEW: Find match using embedding similarity
@@ -666,57 +722,55 @@ async function normalizePosition(
   if (matchMethod === 'none') {
     console.log(`[normalize-position] 🔍 Trying EMBEDDING match...`);
     
-    const embedding = await generateEmbedding(cleanedText);
+    const embedding = generateEmbedding(cleanedText);
     
-    if (embedding) {
-      // Save embedding for position clustering
-      if (input.position_id) {
-        await savePositionEmbedding(supabase, input.position_id, embedding);
-      }
+    // Save embedding for position clustering
+    if (input.position_id) {
+      await savePositionEmbedding(supabase, input.position_id, embedding);
+    }
+    
+    // Determine what to search based on position type
+    let embeddingMatch: EmbeddingMatch | null = null;
+    
+    if (positionType === 'arbeitszeit' || positionType === 'pauschale') {
+      embeddingMatch = await findEmbeddingMatch(supabase, embedding, input.service_domain, 'service');
+    } else if (positionType === 'material' || positionType === 'ersatzteil') {
+      embeddingMatch = await findEmbeddingMatch(supabase, embedding, input.service_domain, 'material');
+    } else {
+      // Try both for 'sonstig'
+      const serviceMatch = await findEmbeddingMatch(supabase, embedding, input.service_domain, 'service');
+      const materialMatch = await findEmbeddingMatch(supabase, embedding, input.service_domain, 'material');
       
-      // Determine what to search based on position type
-      let embeddingMatch: EmbeddingMatch | null = null;
-      
-      if (positionType === 'arbeitszeit' || positionType === 'pauschale') {
-        embeddingMatch = await findEmbeddingMatch(supabase, embedding, input.service_domain, 'service');
-      } else if (positionType === 'material' || positionType === 'ersatzteil') {
-        embeddingMatch = await findEmbeddingMatch(supabase, embedding, input.service_domain, 'material');
+      if (serviceMatch && materialMatch) {
+        embeddingMatch = serviceMatch.similarity >= materialMatch.similarity ? serviceMatch : materialMatch;
       } else {
-        // Try both for 'sonstig'
-        const serviceMatch = await findEmbeddingMatch(supabase, embedding, input.service_domain, 'service');
-        const materialMatch = await findEmbeddingMatch(supabase, embedding, input.service_domain, 'material');
-        
-        if (serviceMatch && materialMatch) {
-          embeddingMatch = serviceMatch.similarity >= materialMatch.similarity ? serviceMatch : materialMatch;
-        } else {
-          embeddingMatch = serviceMatch || materialMatch;
-        }
+        embeddingMatch = serviceMatch || materialMatch;
       }
+    }
+    
+    if (embeddingMatch && embeddingMatch.similarity >= EMBEDDING_SIMILARITY_THRESHOLD) {
+      console.log(`[normalize-position] ✓ EMBEDDING match: ${embeddingMatch.name} (similarity: ${embeddingMatch.similarity.toFixed(3)})`);
       
-      if (embeddingMatch && embeddingMatch.similarity >= EMBEDDING_SIMILARITY_THRESHOLD) {
-        console.log(`[normalize-position] ✓ EMBEDDING match: ${embeddingMatch.name} (similarity: ${embeddingMatch.similarity.toFixed(3)})`);
-        
-        // Determine if it's a service or material match
-        if (positionType === 'arbeitszeit' || positionType === 'pauschale' || positionType === 'sonstig') {
-          // Check if this is a service
-          const isService = services.some(s => s.id === embeddingMatch!.id);
-          if (isService) {
-            normalizedServiceId = embeddingMatch.id;
-            normalizedServiceName = embeddingMatch.name;
-          } else {
-            normalizedMaterialId = embeddingMatch.id;
-            normalizedMaterialName = embeddingMatch.name;
-          }
+      // Determine if it's a service or material match
+      if (positionType === 'arbeitszeit' || positionType === 'pauschale' || positionType === 'sonstig') {
+        // Check if this is a service
+        const isService = services.some(s => s.id === embeddingMatch!.id);
+        if (isService) {
+          normalizedServiceId = embeddingMatch.id;
+          normalizedServiceName = embeddingMatch.name;
         } else {
           normalizedMaterialId = embeddingMatch.id;
           normalizedMaterialName = embeddingMatch.name;
         }
-        
-        confidenceScore = Math.round(embeddingMatch.similarity * 100);
-        matchMethod = 'embedding';
-        embeddingSimilarity = embeddingMatch.similarity;
-        matchedKeywords = embeddingMatch.keywords || [];
+      } else {
+        normalizedMaterialId = embeddingMatch.id;
+        normalizedMaterialName = embeddingMatch.name;
       }
+      
+      confidenceScore = Math.round(embeddingMatch.similarity * 100);
+      matchMethod = 'embedding';
+      embeddingSimilarity = embeddingMatch.similarity;
+      matchedKeywords = embeddingMatch.keywords || [];
     }
   }
   

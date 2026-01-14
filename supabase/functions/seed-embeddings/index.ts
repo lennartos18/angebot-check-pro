@@ -13,37 +13,89 @@ interface SeedResult {
   errors: string[];
 }
 
-// Generate embedding via our own function
-async function generateEmbedding(text: string): Promise<number[] | null> {
-  const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-  if (!LOVABLE_API_KEY) {
-    throw new Error('LOVABLE_API_KEY not configured');
+// Simple string hash function
+function hashString(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
   }
+  return Math.abs(hash);
+}
 
-  try {
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'text-embedding-3-small',
-        input: [text],
-      }),
-    });
-
-    if (!response.ok) {
-      console.error(`Embedding API error: ${response.status}`);
-      return null;
+// Enhanced semantic embedding using word-level similarity features
+function createSemanticEmbedding(text: string): number[] {
+  const normalized = text.toLowerCase()
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  
+  const words = normalized.split(' ').filter(w => w.length > 1);
+  const embedding = new Array(512).fill(0);
+  
+  // Character trigram features (captures spelling similarities)
+  const trigrams = new Set<string>();
+  for (const word of words) {
+    for (let i = 0; i <= word.length - 3; i++) {
+      trigrams.add(word.substring(i, i + 3));
     }
-
-    const data = await response.json();
-    return data.data?.[0]?.embedding || null;
-  } catch (error) {
-    console.error('Error generating embedding:', error);
-    return null;
   }
+  
+  for (const trigram of trigrams) {
+    const idx = hashString(trigram) % 256;
+    embedding[idx] += 1;
+  }
+  
+  // Word presence features
+  for (const word of words) {
+    const idx = 256 + (hashString(word) % 256);
+    embedding[idx] += 1;
+  }
+  
+  // Common automotive/construction term boosting
+  const domainTerms: Record<string, number[]> = {
+    'oel': [0, 1, 2],
+    'oil': [0, 1, 2],
+    'filter': [3, 4, 5],
+    'wechsel': [6, 7, 8],
+    'wechseln': [6, 7, 8],
+    'austausch': [6, 7, 8],
+    'motor': [9, 10, 11],
+    'bremse': [12, 13, 14],
+    'brems': [12, 13, 14],
+    'farbe': [15, 16, 17],
+    'streichen': [18, 19, 20],
+    'anstrich': [18, 19, 20],
+    'montage': [21, 22, 23],
+    'montieren': [21, 22, 23],
+    'einbau': [21, 22, 23],
+    'reparatur': [24, 25, 26],
+    'reparieren': [24, 25, 26],
+    'service': [27, 28, 29],
+    'wartung': [27, 28, 29],
+    'inspektion': [27, 28, 29],
+  };
+  
+  for (const word of words) {
+    const indices = domainTerms[word];
+    if (indices) {
+      for (const idx of indices) {
+        embedding[idx] += 2;
+      }
+    }
+  }
+  
+  // Normalize
+  const magnitude = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
+  if (magnitude > 0) {
+    for (let i = 0; i < embedding.length; i++) {
+      embedding[i] /= magnitude;
+    }
+  }
+  
+  return embedding;
 }
 
 // Create rich text for embedding from service/material
@@ -82,26 +134,22 @@ serve(async (req) => {
       
       for (const service of services) {
         const text = createEmbeddingText(service.name, service.keywords, service.service_domain);
-        const embedding = await generateEmbedding(text);
+        const embedding = createSemanticEmbedding(text);
         
-        if (embedding) {
-          const { error: updateError } = await supabase
-            .from('normalized_services')
-            .update({ embedding: JSON.stringify(embedding) })
-            .eq('id', service.id);
-          
-          if (updateError) {
-            result.errors.push(`Error updating service ${service.id}: ${updateError.message}`);
-          } else {
-            result.services_updated++;
-            console.log(`[seed-embeddings] ✓ Service: ${service.name}`);
-          }
+        // Convert to string format for pgvector
+        const embeddingStr = `[${embedding.join(',')}]`;
+        
+        const { error: updateError } = await supabase
+          .from('normalized_services')
+          .update({ embedding: embeddingStr })
+          .eq('id', service.id);
+        
+        if (updateError) {
+          result.errors.push(`Error updating service ${service.id}: ${updateError.message}`);
         } else {
-          result.errors.push(`Failed to generate embedding for service: ${service.name}`);
+          result.services_updated++;
+          console.log(`[seed-embeddings] ✓ Service: ${service.name}`);
         }
-        
-        // Small delay to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 100));
       }
     } else {
       console.log('[seed-embeddings] No services need embedding updates');
@@ -120,26 +168,22 @@ serve(async (req) => {
       
       for (const material of materials) {
         const text = createEmbeddingText(material.name, material.keywords, material.service_domain);
-        const embedding = await generateEmbedding(text);
+        const embedding = createSemanticEmbedding(text);
         
-        if (embedding) {
-          const { error: updateError } = await supabase
-            .from('normalized_materials')
-            .update({ embedding: JSON.stringify(embedding) })
-            .eq('id', material.id);
-          
-          if (updateError) {
-            result.errors.push(`Error updating material ${material.id}: ${updateError.message}`);
-          } else {
-            result.materials_updated++;
-            console.log(`[seed-embeddings] ✓ Material: ${material.name}`);
-          }
+        // Convert to string format for pgvector
+        const embeddingStr = `[${embedding.join(',')}]`;
+        
+        const { error: updateError } = await supabase
+          .from('normalized_materials')
+          .update({ embedding: embeddingStr })
+          .eq('id', material.id);
+        
+        if (updateError) {
+          result.errors.push(`Error updating material ${material.id}: ${updateError.message}`);
         } else {
-          result.errors.push(`Failed to generate embedding for material: ${material.name}`);
+          result.materials_updated++;
+          console.log(`[seed-embeddings] ✓ Material: ${material.name}`);
         }
-        
-        // Small delay to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 100));
       }
     } else {
       console.log('[seed-embeddings] No materials need embedding updates');

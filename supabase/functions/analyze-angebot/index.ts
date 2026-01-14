@@ -236,8 +236,8 @@ Brutto: ${extractResult.gesamtsumme_brutto || extractResult.summe_brutto || 'Unb
     const systemPrompt = `Du bist ein Experte für die Bewertung von Handwerker-Angeboten, Kostenvoranschlägen und Rechnungen in Deutschland.
 
 DEINE AUFGABE:
-1. Extrahiere alle Positionen aus dem Dokument
-2. Bewerte jede Position anhand von Marktdaten
+1. Extrahiere NUR bepreiste Positionen aus dem Dokument (Positionen mit Gesamtpreis)
+2. Bewerte jede bepreiste Position anhand von Marktdaten
 3. Gib eine Gesamtbewertung ab
 
 ${marktpreisContext}
@@ -249,7 +249,18 @@ BEWERTUNGSSTUFEN (EXAKT diese Werte verwenden):
 - "leicht_unter_vergleich": Preis liegt 15-30% unter dem Durchschnitt
 - "auffaellig_hoch": Preis liegt mehr als 30% über dem Durchschnitt
 - "auffaellig_niedrig": Preis liegt mehr als 25% unter dem Durchschnitt
-- "nicht_einordenbar": NUR wenn echte Sonderleistung (Notdienst, Spezialanfertigung) ODER wenn wirklich keine Vergleichsdaten existieren
+- "nicht_einordenbar": NUR bei echten Notdiensten (nachts, Wochenende) oder absoluten Einzelstücken ohne jegliche Vergleichsmöglichkeit
+
+⚠️ KRITISCH - EINORDNUNGS-PFLICHT:
+1. Wenn du marktpreis_min, marktpreis_max oder marktpreis_durchschnitt angeben KANNST → MUSS eine Einordnung erfolgen (NIEMALS "nicht_einordenbar")
+2. Spezialanfertigungen (Treppen, Küchen, Möbel) → Trotzdem einordnen! Nutze Preis-pro-Qualität-Verhältnis
+3. Pauschalangebote → Trotzdem einordnen! Vergleiche mit typischen Gesamtkosten für ähnliche Projekte
+4. "nicht_einordenbar" VERBOTEN wenn Marktdaten berechnet werden können
+
+⚠️ KRITISCH - NUR BEPREISTE POSITIONEN:
+1. Technische Beschreibungen ohne eigenen Preis → NICHT als Position aufnehmen
+2. Spezifikationen/Ausstattungsdetails → NICHT als Position aufnehmen
+3. Nur Zeilen mit konkretem Gesamtpreis (€) werden zu Positionen
 
 WICHTIGE REGELN:
 1. Verwende die internen Marktdaten wenn verfügbar
@@ -257,13 +268,13 @@ WICHTIGE REGELN:
 3. IMMER konkrete Preisschätzungen angeben (marktpreis_min, marktpreis_max, marktpreis_durchschnitt)
 4. IMMER Datengrundlage nennen: "Interne Marktdaten", "Branchendurchschnitt Deutschland" oder "Allgemeine Markteinschätzung"
 5. Gib IMMER einen kurzen, verständlichen Hinweis pro Position
-6. "nicht_einordenbar" ist die LETZTE Option - versuche immer eine Einordnung
 
 HINWEIS-BEISPIELE:
 - "Im regionalen Rahmen für Hamburg, typisch für Sanitärarbeiten"
 - "Leicht über dem Marktdurchschnitt, aber vertretbar bei Qualitätsarbeit"
 - "Auffällig hoch - Nachverhandlung empfohlen"
 - "Günstiger als üblich - Qualität prüfen"
+- "Sehr günstig für eine Holztreppe dieser Qualität"
 
 Antworte IMMER als valides JSON mit dieser Struktur:
 {
@@ -274,7 +285,7 @@ Antworte IMMER als valides JSON mit dieser Struktur:
   "plz": "PLZ oder null",
   "stadt": "Stadt oder null",
   "region": "Region oder null",
-  "service_domain": "Sanitär" | "Elektro" | "Maler" | "Trockenbau" | "Heizung" | "Dachdecker" | "Kfz" | "Allgemein",
+  "service_domain": "handwerk",
   "gesamtpreis": Zahl,
   "plausibility_score": 0-100,
   "analysis_summary": "Kurze Zusammenfassung der Bewertung (2-3 Sätze)",
@@ -480,6 +491,23 @@ Antworte IMMER als valides JSON mit dieser Struktur:
     const duration = Date.now() - startTime;
     console.log(`=== ANALYSE ABGESCHLOSSEN in ${duration}ms ===`);
     console.log(`Positionen: ${analysisResult.positionen?.length || 0}, Score: ${analysisResult.plausibility_score}`);
+    
+    // Log evaluation level distribution for debugging
+    if (analysisResult.positionen && analysisResult.positionen.length > 0) {
+      const stufeStats: Record<string, number> = {};
+      analysisResult.positionen.forEach(pos => {
+        const stufe = pos.einordnung_stufe || 'undefined';
+        stufeStats[stufe] = (stufeStats[stufe] || 0) + 1;
+      });
+      console.log('Einordnungs-Verteilung:', JSON.stringify(stufeStats));
+      
+      // Warn if too many positions are nicht_einordenbar
+      const nichtEinordenbar = stufeStats['nicht_einordenbar'] || 0;
+      const totalPositionen = analysisResult.positionen.length;
+      if (nichtEinordenbar > totalPositionen * 0.5) {
+        console.warn(`⚠️ WARNUNG: ${nichtEinordenbar}/${totalPositionen} Positionen sind 'nicht_einordenbar' - Prompt-Optimierung prüfen!`);
+      }
+    }
 
     // Save to cache for future requests
     try {

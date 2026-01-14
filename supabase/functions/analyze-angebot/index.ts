@@ -1,6 +1,8 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { crypto } from "https://deno.land/std@0.168.0/crypto/mod.ts";
+import { encode as encodeHex } from "https://deno.land/std@0.168.0/encoding/hex.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -39,6 +41,17 @@ interface AnalysisResult {
   analysis_summary?: string;
   positionen?: Position[];
   error?: string;
+  cached?: boolean;
+}
+
+// Helper function to create SHA-256 hash
+async function createDocumentHash(content: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(content);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = new Uint8Array(hashBuffer);
+  const decoder = new TextDecoder();
+  return decoder.decode(encodeHex(hashArray));
 }
 
 serve(async (req) => {
@@ -92,11 +105,48 @@ serve(async (req) => {
       throw new Error('LOVABLE_API_KEY nicht konfiguriert');
     }
 
-    // Fetch internal market prices for context
+    // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    // Create document hash for cache lookup
+    const hashContent = imageBase64 || documentContent || '';
+    const documentHash = await createDocumentHash(hashContent);
+    console.log('Document hash:', documentHash.substring(0, 16) + '...');
+
+    // Check cache first
+    const { data: cachedResult } = await supabase
+      .from('document_analysis_cache')
+      .select('id, analysis_result')
+      .eq('document_hash', documentHash)
+      .maybeSingle();
+
+    if (cachedResult) {
+      console.log('=== CACHE HIT ===');
+      // Update access stats
+      await supabase
+        .from('document_analysis_cache')
+        .update({ 
+          last_accessed_at: new Date().toISOString(),
+          access_count: (cachedResult as any).access_count + 1 || 1
+        })
+        .eq('id', cachedResult.id);
+
+      const duration = Date.now() - startTime;
+      console.log(`Cache-Ergebnis zurückgegeben in ${duration}ms`);
+
+      const result = cachedResult.analysis_result as AnalysisResult;
+      result.cached = true;
+
+      return new Response(JSON.stringify(result), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    console.log('Cache miss - starte neue Analyse...');
+
+    // Fetch internal market prices for context
     const { data: marktpreise } = await supabase
       .from('marktpreise')
       .select('position_kategorie, preis_min, preis_max, preis_durchschnitt, einheit, region')
@@ -289,6 +339,22 @@ Antworte IMMER als valides JSON mit dieser Struktur:
     const duration = Date.now() - startTime;
     console.log(`=== ANALYSE ABGESCHLOSSEN in ${duration}ms ===`);
     console.log(`Positionen: ${analysisResult.positionen?.length || 0}, Score: ${analysisResult.plausibility_score}`);
+
+    // Save to cache for future requests
+    try {
+      await supabase
+        .from('document_analysis_cache')
+        .insert({
+          document_hash: documentHash,
+          analysis_result: analysisResult,
+          file_type: detectedMimeType,
+          file_size_bytes: hashContent.length
+        });
+      console.log('Ergebnis in Cache gespeichert');
+    } catch (cacheError) {
+      // Don't fail the request if caching fails
+      console.error('Cache-Speicherung fehlgeschlagen:', cacheError);
+    }
 
     return new Response(JSON.stringify(analysisResult), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

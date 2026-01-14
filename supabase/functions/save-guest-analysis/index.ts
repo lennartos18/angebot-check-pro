@@ -32,6 +32,10 @@ interface DocumentAnalysis {
   service_domain?: string;
   document_type?: string;
   positionen: Position[];
+  // Neue Felder für Anonymisierung
+  handwerker_name?: string;
+  handwerker_firma?: string;
+  anbieter_adresse?: string;
 }
 
 interface AnalysisData {
@@ -45,10 +49,36 @@ interface RequestBody {
   analysis_data: AnalysisData;
 }
 
-// Anonymize text by hashing
-function anonymizeText(text: string | null | undefined): string | null {
+// SHA-256 Hash für bessere Anonymisierung (konsistent)
+async function createAnonymizedHash(text: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text.toLowerCase().trim());
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return `anon_${hashHex.substring(0, 16)}`;
+}
+
+// Content Hash für Duplikat-Erkennung
+async function createContentHash(doc: DocumentAnalysis): Promise<string> {
+  const content = JSON.stringify({
+    positionen: doc.positionen?.map(p => ({
+      beschreibung: p.beschreibung?.toLowerCase().trim(),
+      menge: p.menge,
+      gesamtpreis: p.gesamtpreis
+    })),
+    gesamtpreis: doc.gesamtpreis
+  });
+  const encoder = new TextEncoder();
+  const data = encoder.encode(content);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Legacy anonymize function (replaced by createAnonymizedHash)
+function anonymizeTextSync(text: string | null | undefined): string | null {
   if (!text) return null;
-  // Simple hash for anonymization
   let hash = 0;
   for (let i = 0; i < text.length; i++) {
     const char = text.charCodeAt(i);
@@ -56,6 +86,57 @@ function anonymizeText(text: string | null | undefined): string | null {
     hash = hash & hash;
   }
   return `anon_${Math.abs(hash).toString(16)}`;
+}
+
+// Call normalize-position edge function
+async function normalizePosition(
+  supabaseUrl: string,
+  supabaseKey: string,
+  positionId: string,
+  rawText: string,
+  serviceDomain: string,
+  quantity?: number,
+  unit?: string,
+  totalPrice?: number
+): Promise<{
+  normalized_service_id: string | null;
+  normalized_material_id: string | null;
+  normalization_confidence: number;
+  normalization_status: string;
+} | null> {
+  try {
+    const response = await fetch(`${supabaseUrl}/functions/v1/normalize-position`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${supabaseKey}`,
+      },
+      body: JSON.stringify({
+        raw_text: rawText,
+        service_domain: serviceDomain,
+        quantity,
+        unit,
+        total_price: totalPrice,
+        position_id: positionId
+      })
+    });
+    
+    if (!response.ok) {
+      console.error(`[normalize-position] Failed: ${response.status}`);
+      return null;
+    }
+    
+    const result = await response.json();
+    return {
+      normalized_service_id: result.normalized_service_id || null,
+      normalized_material_id: result.normalized_material_id || null,
+      normalization_confidence: result.confidence_score || 0,
+      normalization_status: result.normalization_status || 'pending'
+    };
+  } catch (error) {
+    console.error('[normalize-position] Error:', error);
+    return null;
+  }
 }
 
 // Generate time bucket (e.g., "2025-Q1")
@@ -234,6 +315,26 @@ Deno.serve(async (req) => {
       const serviceDomain = doc.service_domain || 'handwerk';
       const gewerk = mapServiceDomainToGewerk(serviceDomain);
       
+      // Create proper anonymized provider ID from firma/name
+      const providerIdentifier = doc.handwerker_firma || doc.handwerker_name || doc.title || '';
+      const anonymizedProviderId = await createAnonymizedHash(providerIdentifier);
+      
+      // Create content hash for duplicate detection
+      const contentHash = await createContentHash(doc);
+      
+      // Check for duplicate document
+      const { data: existingDoc } = await supabase
+        .from('documents')
+        .select('id')
+        .eq('content_hash', contentHash)
+        .maybeSingle();
+      
+      if (existingDoc) {
+        console.log(`[save-guest-analysis] ⚠️ Duplicate document detected, skipping: ${existingDoc.id}`);
+        savedDocuments.push(existingDoc.id);
+        continue;
+      }
+      
       // Create anonymized document entry
       const { data: documentData, error: documentError } = await supabase
         .from('documents')
@@ -244,7 +345,8 @@ Deno.serve(async (req) => {
           time_bucket: timeBucket,
           region_cluster_id: regionClusterId,
           total_gross_amount: doc.gesamtpreis || null,
-          anonymized_provider_id: anonymizeText(doc.title),
+          anonymized_provider_id: anonymizedProviderId,
+          content_hash: contentHash,
           position_count: doc.positionen?.length || 0,
           currency: 'EUR'
         })
@@ -259,9 +361,13 @@ Deno.serve(async (req) => {
       
       const documentId = documentData.id;
       savedDocuments.push(documentId);
-      console.log(`[save-guest-analysis] ✓ Saved document with ID: ${documentId}`);
+      console.log(`[save-guest-analysis] ✓ Saved document with ID: ${documentId}, provider hash: ${anonymizedProviderId.substring(0, 20)}...`);
       
-      // Save each position anonymized
+      // Get environment variables for normalize-position call
+      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+      const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+      
+      // Save each position anonymized and normalize
       const positions = doc.positionen || [];
       for (let posIndex = 0; posIndex < positions.length; posIndex++) {
         const position = positions[posIndex];
@@ -296,6 +402,37 @@ Deno.serve(async (req) => {
         
         savedPositions.push(positionData.id);
         console.log(`[save-guest-analysis]   ✓ Saved position with ID: ${positionData.id}`);
+        
+        // Call normalize-position to normalize and learn
+        const normResult = await normalizePosition(
+          supabaseUrl,
+          supabaseServiceKey,
+          positionData.id,
+          position.beschreibung || '',
+          serviceDomain,
+          position.menge,
+          position.einheit,
+          position.gesamtpreis
+        );
+        
+        if (normResult) {
+          // Update position with normalization result
+          const { error: updateError } = await supabase
+            .from('document_positions')
+            .update({
+              normalized_service_id: normResult.normalized_service_id,
+              normalized_material_id: normResult.normalized_material_id,
+              normalization_confidence: normResult.normalization_confidence,
+              normalization_status: normResult.normalization_status
+            })
+            .eq('id', positionData.id);
+          
+          if (updateError) {
+            console.error(`[save-guest-analysis]   ⚠️ Normalization update failed:`, updateError.message);
+          } else {
+            console.log(`[save-guest-analysis]   ✓ Normalized: confidence=${normResult.normalization_confidence}%, status=${normResult.normalization_status}`);
+          }
+        }
       }
     }
     

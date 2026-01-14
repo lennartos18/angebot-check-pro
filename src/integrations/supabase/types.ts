@@ -207,8 +207,22 @@ export type Database = {
             foreignKeyName: "document_positions_normalized_service_id_fkey"
             columns: ["normalized_service_id"]
             isOneToOne: false
+            referencedRelation: "admin_price_variance"
+            referencedColumns: ["service_id"]
+          },
+          {
+            foreignKeyName: "document_positions_normalized_service_id_fkey"
+            columns: ["normalized_service_id"]
+            isOneToOne: false
             referencedRelation: "normalized_services"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_positions_region_cluster_id_fkey"
+            columns: ["region_cluster_id"]
+            isOneToOne: false
+            referencedRelation: "admin_regional_prices"
+            referencedColumns: ["region_id"]
           },
           {
             foreignKeyName: "document_positions_region_cluster_id_fkey"
@@ -269,6 +283,13 @@ export type Database = {
           total_net_amount?: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "documents_region_cluster_id_fkey"
+            columns: ["region_cluster_id"]
+            isOneToOne: false
+            referencedRelation: "admin_regional_prices"
+            referencedColumns: ["region_id"]
+          },
           {
             foreignKeyName: "documents_region_cluster_id_fkey"
             columns: ["region_cluster_id"]
@@ -388,6 +409,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "normalized_materials"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "external_reference_data_normalized_service_id_fkey"
+            columns: ["normalized_service_id"]
+            isOneToOne: false
+            referencedRelation: "admin_price_variance"
+            referencedColumns: ["service_id"]
           },
           {
             foreignKeyName: "external_reference_data_normalized_service_id_fkey"
@@ -846,8 +874,22 @@ export type Database = {
             foreignKeyName: "price_evaluations_normalized_service_id_fkey"
             columns: ["normalized_service_id"]
             isOneToOne: false
+            referencedRelation: "admin_price_variance"
+            referencedColumns: ["service_id"]
+          },
+          {
+            foreignKeyName: "price_evaluations_normalized_service_id_fkey"
+            columns: ["normalized_service_id"]
+            isOneToOne: false
             referencedRelation: "normalized_services"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "price_evaluations_region_cluster_id_fkey"
+            columns: ["region_cluster_id"]
+            isOneToOne: false
+            referencedRelation: "admin_regional_prices"
+            referencedColumns: ["region_id"]
           },
           {
             foreignKeyName: "price_evaluations_region_cluster_id_fkey"
@@ -899,6 +941,7 @@ export type Database = {
           id: string
           plz_prefix: string
           region_name: string | null
+          region_type: string | null
         }
         Insert: {
           area_type?: string | null
@@ -907,6 +950,7 @@ export type Database = {
           id?: string
           plz_prefix: string
           region_name?: string | null
+          region_type?: string | null
         }
         Update: {
           area_type?: string | null
@@ -915,6 +959,7 @@ export type Database = {
           id?: string
           plz_prefix?: string
           region_name?: string | null
+          region_type?: string | null
         }
         Relationships: []
       }
@@ -1011,6 +1056,13 @@ export type Database = {
             foreignKeyName: "text_normalizations_normalized_service_id_fkey"
             columns: ["normalized_service_id"]
             isOneToOne: false
+            referencedRelation: "admin_price_variance"
+            referencedColumns: ["service_id"]
+          },
+          {
+            foreignKeyName: "text_normalizations_normalized_service_id_fkey"
+            columns: ["normalized_service_id"]
+            isOneToOne: false
             referencedRelation: "normalized_services"
             referencedColumns: ["id"]
           },
@@ -1049,6 +1101,13 @@ export type Database = {
             foreignKeyName: "vehicle_related_extensions_position_id_fkey"
             columns: ["position_id"]
             isOneToOne: false
+            referencedRelation: "admin_low_confidence_positions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vehicle_related_extensions_position_id_fkey"
+            columns: ["position_id"]
+            isOneToOne: false
             referencedRelation: "document_positions"
             referencedColumns: ["id"]
           },
@@ -1056,6 +1115,94 @@ export type Database = {
       }
     }
     Views: {
+      admin_low_confidence_positions: {
+        Row: {
+          bundesland: string | null
+          created_at: string | null
+          id: string | null
+          normalization_confidence: number | null
+          normalization_status: string | null
+          normalized_material_id: string | null
+          normalized_service_id: string | null
+          position_type: string | null
+          raw_text: string | null
+          region_name: string | null
+          service_domain: string | null
+          total_price: number | null
+          unit: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_positions_normalized_material_id_fkey"
+            columns: ["normalized_material_id"]
+            isOneToOne: false
+            referencedRelation: "normalized_materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_positions_normalized_service_id_fkey"
+            columns: ["normalized_service_id"]
+            isOneToOne: false
+            referencedRelation: "admin_price_variance"
+            referencedColumns: ["service_id"]
+          },
+          {
+            foreignKeyName: "document_positions_normalized_service_id_fkey"
+            columns: ["normalized_service_id"]
+            isOneToOne: false
+            referencedRelation: "normalized_services"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      admin_monitoring: {
+        Row: {
+          covered_regions: number | null
+          documents_last_week: number | null
+          domain_distribution: Json | null
+          learned_patterns: number | null
+          low_confidence_positions: number | null
+          missing_content_hash: number | null
+          missing_provider_anonymization: number | null
+          position_type_distribution: Json | null
+          positions_last_week: number | null
+          potential_duplicates: number | null
+          total_normalizations: number | null
+          total_regions: number | null
+          unnormalized_positions: number | null
+          unused_services: number | null
+        }
+        Relationships: []
+      }
+      admin_price_variance: {
+        Row: {
+          avg_unit_price: number | null
+          high_variance: boolean | null
+          max_unit_price: number | null
+          min_unit_price: number | null
+          position_count: number | null
+          service_domain: string | null
+          service_id: string | null
+          service_name: string | null
+          stddev_unit_price: number | null
+          variation_coefficient: number | null
+        }
+        Relationships: []
+      }
+      admin_regional_prices: {
+        Row: {
+          avg_unit_price: number | null
+          bundesland: string | null
+          document_count: number | null
+          median_unit_price: number | null
+          plz_prefix: string | null
+          position_count: number | null
+          region_id: string | null
+          region_name: string | null
+          region_type: string | null
+        }
+        Relationships: []
+      }
       database_statistics: {
         Row: {
           cached_analyses: number | null

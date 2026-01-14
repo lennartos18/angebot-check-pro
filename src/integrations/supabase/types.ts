@@ -223,6 +223,7 @@ export type Database = {
         Row: {
           anonymized_customer_id: string | null
           anonymized_provider_id: string | null
+          content_hash: string | null
           created_at: string | null
           currency: string | null
           document_type: string
@@ -238,6 +239,7 @@ export type Database = {
         Insert: {
           anonymized_customer_id?: string | null
           anonymized_provider_id?: string | null
+          content_hash?: string | null
           created_at?: string | null
           currency?: string | null
           document_type: string
@@ -253,6 +255,7 @@ export type Database = {
         Update: {
           anonymized_customer_id?: string | null
           anonymized_provider_id?: string | null
+          content_hash?: string | null
           created_at?: string | null
           currency?: string | null
           document_type?: string
@@ -1053,10 +1056,22 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      database_statistics: {
+        Row: {
+          cached_analyses: number | null
+          covered_regions: number | null
+          newest_document: string | null
+          oldest_document: string | null
+          service_domains: number | null
+          total_documents: number | null
+          total_positions: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       anonymize_text: { Args: { input_text: string }; Returns: string }
+      cleanup_old_cache_entries: { Args: never; Returns: undefined }
       generate_time_bucket: { Args: { d: string }; Returns: string }
       get_region_cluster_id: { Args: { plz: string }; Returns: string }
     }

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,10 +14,12 @@ import {
   Lock,
   Info,
   MapPin,
-  ArrowLeft
+  ArrowLeft,
+  Home
 } from 'lucide-react';
 import { StatusBadge, EvaluationLevel } from './StatusBadge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Header } from './Header';
 
 interface Position {
   beschreibung: string;
@@ -63,52 +65,6 @@ function getDataSourceDisplay(datengrundlage?: string, datenquelle?: string): st
   }
   
   return datengrundlage || 'KI-gestützte Markteinschätzung';
-}
-
-// Aggregate data sources from all positions
-function aggregateDataSources(positionen: Position[]): { primary: string; sources: Set<string> } {
-  const sources = new Set<string>();
-  let hasExternal = false;
-  let hasInternal = false;
-  let hasKI = false;
-  
-  positionen.forEach(pos => {
-    const source = (pos.datengrundlage || '').toLowerCase();
-    if (source.includes('externe') || source.includes('firecrawl') || source.includes('web')) {
-      hasExternal = true;
-      sources.add('Externe Preisrecherche');
-    }
-    if (source.includes('interne') || source.includes('vergleich')) {
-      hasInternal = true;
-      sources.add('Interne Vergleichsdaten');
-    }
-    if (source.includes('gemini') || source.includes('ki') || source.includes('branchendurchschnitt') || source.includes('allgemein')) {
-      hasKI = true;
-      sources.add('KI-gestützte Analyse');
-    }
-  });
-  
-  // Default to KI if nothing else detected
-  if (sources.size === 0) {
-    hasKI = true;
-    sources.add('KI-gestützte Analyse');
-  }
-  
-  // Determine primary description
-  let primary: string;
-  if (hasExternal && hasKI) {
-    primary = 'Basierend auf KI-gestützter Marktanalyse und externen Preisquellen';
-  } else if (hasInternal && hasKI) {
-    primary = 'Basierend auf internen Vergleichsdaten und KI-Analyse';
-  } else if (hasExternal) {
-    primary = 'Basierend auf externen Preisrecherchen';
-  } else if (hasInternal) {
-    primary = 'Basierend auf internen Vergleichsdaten';
-  } else {
-    primary = 'Basierend auf KI-gestützter Marktanalyse (Gemini)';
-  }
-  
-  return { primary, sources };
 }
 
 interface DocumentResult {
@@ -245,66 +201,48 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
     return counts;
   }, [successfulDocs]);
 
-  // Comparison data for multiple documents
-  const comparisonData = useMemo(() => {
-    if (successfulDocs.length < 2) return null;
-
-    const allPositions: Map<string, { doc: number; position: Position }[]> = new Map();
-    
-    successfulDocs.forEach((doc, docIndex) => {
-      doc.positionen?.forEach(pos => {
-        const key = pos.beschreibung.toLowerCase().trim().slice(0, 50);
-        if (!allPositions.has(key)) {
-          allPositions.set(key, []);
-        }
-        allPositions.get(key)!.push({ doc: docIndex, position: pos });
-      });
-    });
-
-    const commonPositions = Array.from(allPositions.entries())
-      .filter(([_, docs]) => docs.length > 1)
-      .map(([key, docs]) => ({
-        beschreibung: docs[0].position.beschreibung,
-        documents: docs.map(d => ({
-          docIndex: d.doc,
-          gesamtpreis: d.position.gesamtpreis,
-          einordnung: d.position.einordnung_stufe
-        }))
-      }));
-
-    return { commonPositions };
-  }, [successfulDocs]);
+  const handleBackToHome = () => {
+    window.location.href = '/';
+  };
 
   return (
     <TooltipProvider>
       <div className="min-h-screen bg-background">
-        {/* Header */}
-        <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b">
-          <div className="container max-w-6xl mx-auto px-4 py-4">
+        {/* Header with navigation */}
+        <Header onUploadClick={onClose} />
+        
+        {/* Secondary navigation */}
+        <div className="sticky top-16 z-10 bg-background/95 backdrop-blur border-b">
+          <div className="container max-w-6xl mx-auto px-4 py-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <Button variant="ghost" size="icon" onClick={onClose}>
-                  <ArrowLeft className="w-5 h-5" />
+                <Button variant="ghost" size="sm" onClick={handleBackToHome} className="gap-2">
+                  <Home className="w-4 h-4" />
+                  Zur Startseite
                 </Button>
-                <div>
-                  <h1 className="text-2xl font-bold">Analyse-Ergebnis</h1>
-                  <p className="text-muted-foreground text-sm flex items-center gap-2">
-                    {analysisData.documentCount} Dokument{analysisData.documentCount !== 1 ? 'e' : ''} analysiert
-                    {(analysisData.plz || analysisData.stadt) && (
-                      <>
-                        <span>•</span>
-                        <MapPin className="w-3.5 h-3.5" />
-                        {[analysisData.plz, analysisData.stadt].filter(Boolean).join(' ')}
-                      </>
-                    )}
-                  </p>
-                </div>
+                <div className="h-4 w-px bg-border" />
+                <Button variant="outline" size="sm" onClick={onClose} className="gap-2">
+                  <ArrowLeft className="w-4 h-4" />
+                  Neue Analyse
+                </Button>
               </div>
-              <Button onClick={onRequestPDF} className="gap-2">
-                <Download className="w-4 h-4" />
-                PDF-Report
-                <Badge variant="secondary" className="ml-1">2,99€</Badge>
-              </Button>
+              <div className="flex items-center gap-3">
+                <p className="text-muted-foreground text-sm flex items-center gap-2">
+                  {analysisData.documentCount} Dokument{analysisData.documentCount !== 1 ? 'e' : ''} analysiert
+                  {(analysisData.plz || analysisData.stadt) && (
+                    <>
+                      <span>•</span>
+                      <MapPin className="w-3.5 h-3.5" />
+                      {[analysisData.plz, analysisData.stadt].filter(Boolean).join(' ')}
+                    </>
+                  )}
+                </p>
+                <Button onClick={onRequestPDF} size="sm" className="gap-2">
+                  <Download className="w-4 h-4" />
+                  PDF-Report
+                  <Badge variant="secondary" className="ml-1">2,99€</Badge>
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -426,9 +364,11 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
                                                 💡 {pos.hinweis}
                                               </p>
                                             )}
-                                            <p className="text-xs text-muted-foreground/70 border-t border-border pt-2 mt-2">
-                                              Quelle: {getDataSourceDisplay(pos.datengrundlage, pos.datenquelle)}
-                                            </p>
+                                            {pos.datengrundlage && (
+                                              <p className="text-xs text-muted-foreground/70 border-t border-border pt-2">
+                                                📊 {getDataSourceDisplay(pos.datengrundlage, pos.datenquelle)}
+                                              </p>
+                                            )}
                                           </TooltipContent>
                                         </Tooltip>
                                       )}
@@ -441,151 +381,43 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
                         </Table>
                       </div>
 
-                      {/* Mobile Cards - Enhanced */}
-                      <div className="sm:hidden space-y-2">
+                      {/* Mobile Cards */}
+                      <div className="sm:hidden space-y-3">
                         {doc.positionen?.map((pos, j) => {
                           const status = toEvaluationLevel(pos.einordnung_stufe);
-                          const [isExpanded, setIsExpanded] = React.useState(false);
-                          const hasDetails = pos.einordnung_begruendung || pos.marktpreis_durchschnitt || pos.hinweis;
-                          
                           return (
-                            <div 
-                              key={j} 
-                              className="rounded-lg border border-border/50 bg-card overflow-hidden"
-                            >
-                              {/* Main row - tappable */}
-                              <button
-                                onClick={() => hasDetails && setIsExpanded(!isExpanded)}
-                                className="w-full p-3 flex items-center justify-between gap-3 text-left"
-                              >
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium truncate">{pos.beschreibung}</p>
-                                  <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                                    {pos.material && (
-                                      <span className="truncate max-w-[120px]">{pos.material}</span>
-                                    )}
-                                    {pos.menge != null && (
-                                      <span className="whitespace-nowrap">
-                                        {pos.menge} {pos.einheit || ''}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-2 shrink-0">
-                                  <StatusBadge status={status} size="sm" />
-                                  {hasDetails && (
-                                    <div className={`transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>
-                                      <svg className="w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                      </svg>
-                                    </div>
-                                  )}
-                                </div>
-                              </button>
-                              
-                              {/* Expandable details */}
-                              {hasDetails && isExpanded && (
-                                <div className="px-3 pb-3 pt-0 space-y-2 border-t border-border/30 bg-muted/30">
-                                  {pos.einordnung_begruendung && (
-                                    <p className="text-sm text-foreground/90 pt-2">{pos.einordnung_begruendung}</p>
-                                  )}
-                                  {pos.marktpreis_durchschnitt && (
-                                    <div className="text-xs text-muted-foreground space-y-0.5 pt-1">
-                                      <p>
-                                        Marktpreis: Ø {pos.marktpreis_durchschnitt.toLocaleString('de-DE')}€
-                                        {pos.marktpreis_min != null && pos.marktpreis_max != null && (
-                                          <span className="ml-1">
-                                            ({pos.marktpreis_min.toLocaleString('de-DE')}–{pos.marktpreis_max.toLocaleString('de-DE')}€)
-                                          </span>
-                                        )}
-                                      </p>
-                                      {pos.abweichung_prozent != null && (
-                                        <p className={pos.abweichung_prozent > 25 ? 'text-red-600' : pos.abweichung_prozent > 10 ? 'text-yellow-600' : 'text-green-600'}>
-                                          Abweichung: {pos.abweichung_prozent > 0 ? '+' : ''}{pos.abweichung_prozent.toFixed(0)}%
-                                        </p>
-                                      )}
-                                    </div>
-                                  )}
-                                  {pos.hinweis && pos.hinweis !== 'Keine weiteren Hinweise' && (
-                                    <p className="text-xs italic text-muted-foreground pt-1">
-                                      💡 {pos.hinweis}
-                                    </p>
-                                  )}
-                                  <p className="text-xs text-muted-foreground/70 pt-1 border-t border-border/30">
-                                    Quelle: {getDataSourceDisplay(pos.datengrundlage, pos.datenquelle)}
-                                  </p>
-                                </div>
+                            <div key={j} className="p-3 rounded-lg border bg-card">
+                              <div className="flex items-start justify-between gap-2 mb-2">
+                                <p className="font-medium text-sm">{pos.beschreibung}</p>
+                                <StatusBadge status={status} size="sm" />
+                              </div>
+                              <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                                {pos.material && <span>{pos.material}</span>}
+                                {pos.menge != null && (
+                                  <span>{pos.menge} {pos.einheit || ''}</span>
+                                )}
+                              </div>
+                              {pos.einordnung_begruendung && (
+                                <p className="mt-2 text-xs text-muted-foreground">
+                                  {pos.einordnung_begruendung}
+                                </p>
                               )}
                             </div>
                           );
                         })}
                       </div>
 
-                      {/* Footer with transparent data basis */}
-                      {(() => {
-                        const dataSources = aggregateDataSources(doc.positionen || []);
-                        return (
-                          <div className="mt-4 pt-4 border-t border-border space-y-2">
-                            <div className="flex items-start gap-2 text-xs text-muted-foreground">
-                              <Info className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-                              <div className="space-y-1">
-                                <p className="font-medium text-foreground/80">
-                                  {dataSources.primary}
-                                </p>
-                                <p>
-                                  {analysisData.stadt && `Region: ${analysisData.stadt}`}
-                                  {analysisData.plz && !analysisData.stadt && `PLZ-Region: ${analysisData.plz.slice(0, 2)}xxx`}
-                                  {(analysisData.stadt || analysisData.plz) && ' • '}
-                                  Stand: {quarter}
-                                </p>
-                                {dataSources.sources.size > 1 && (
-                                  <p className="text-muted-foreground/70">
-                                    Datenquellen: {Array.from(dataSources.sources).join(', ')}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })()}
+                      {/* Summary footer */}
+                      {doc.gesamtpreis && (
+                        <div className="mt-6 pt-4 border-t flex items-center justify-between">
+                          <span className="font-medium">Gesamtpreis</span>
+                          <span className="text-xl font-bold">
+                            {doc.gesamtpreis.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
+                          </span>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
-
-                  {/* Summary Stats below */}
-                  {(doc.gesamtpreis || doc.plausibility_score) && (
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
-                      {doc.plausibility_score != null && (
-                        <Card className="p-3 border">
-                          <div className="text-xs text-muted-foreground mb-1">Plausibilität</div>
-                          <div className={`text-xl font-bold ${
-                            doc.plausibility_score >= 75 ? 'text-green-600' : 
-                            doc.plausibility_score >= 50 ? 'text-yellow-600' : 
-                            'text-red-600'
-                          }`}>
-                            {doc.plausibility_score}%
-                          </div>
-                        </Card>
-                      )}
-                      {doc.gesamtpreis != null && (
-                        <Card className="p-3 border">
-                          <div className="text-xs text-muted-foreground mb-1">Gesamtpreis</div>
-                          <div className="text-xl font-bold">
-                            {doc.gesamtpreis.toLocaleString('de-DE')}€
-                          </div>
-                        </Card>
-                      )}
-                      <Card className="p-3 border">
-                        <div className="text-xs text-muted-foreground mb-1">Positionen</div>
-                        <div className="text-xl font-bold">{doc.positionen?.length || 0}</div>
-                      </Card>
-                      {doc.service_domain && (
-                        <Card className="p-3 border">
-                          <div className="text-xs text-muted-foreground mb-1">Gewerk</div>
-                          <div className="text-lg font-bold truncate">{doc.service_domain}</div>
-                        </Card>
-                      )}
-                    </div>
-                  )}
                 </TabsContent>
               );
             })}
@@ -594,119 +426,55 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
             {successfulDocs.length > 1 && (
               <TabsContent value="comparison">
                 <Card>
-                  <CardHeader className="pb-4">
-                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-                      <CardTitle className="text-lg">Vergleich: {successfulDocs.length} Angebote</CardTitle>
-                      <StatusSummary counts={overallStats} />
-                    </div>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <BarChart3 className="w-5 h-5" />
+                      Vergleichsübersicht
+                    </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {comparisonData && comparisonData.commonPositions.length > 0 ? (
-                      <>
-                        <div className="overflow-x-auto">
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead className="w-[40%]">Position</TableHead>
-                                {successfulDocs.map((_, i) => (
-                                  <TableHead key={i} className="text-center">Angebot {String.fromCharCode(65 + i)}</TableHead>
-                                ))}
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {comparisonData.commonPositions.map((item, i) => (
-                                <TableRow key={i}>
-                                  <TableCell className="font-medium">{item.beschreibung}</TableCell>
-                                  {successfulDocs.map((_, docIdx) => {
-                                    const docData = item.documents.find(d => d.docIndex === docIdx);
-                                    if (!docData) return <TableCell key={docIdx} className="text-center text-muted-foreground">–</TableCell>;
-                                    const status = toEvaluationLevel(docData.einordnung);
-                                    return (
-                                      <TableCell key={docIdx} className="text-center">
-                                        <StatusBadge status={status} size="sm" />
-                                      </TableCell>
-                                    );
-                                  })}
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-
-                        {/* Overall comparison summary */}
-                        <div className="mt-6 pt-4 border-t">
-                          <p className="text-sm font-medium mb-3">Gesamtbewertung</p>
-                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                            {successfulDocs.map((doc, i) => {
-                              const docCounts = getStatusCounts(doc.positionen || []);
-                              const total = doc.positionen?.length || 1;
-                              const goodPercent = Math.round((docCounts.im_regionalen_rahmen / total) * 100);
-                              
-                              return (
-                                <div 
-                                  key={i}
-                                  className={`rounded-lg p-4 text-center border ${
-                                    goodPercent >= 70 ? 'bg-green-50 border-green-200' :
-                                    goodPercent >= 40 ? 'bg-yellow-50 border-yellow-200' :
-                                    'bg-red-50 border-red-200'
-                                  }`}
-                                >
-                                  <div className={`text-lg font-bold ${
-                                    goodPercent >= 70 ? 'text-green-700' :
-                                    goodPercent >= 40 ? 'text-yellow-700' :
-                                    'text-red-700'
-                                  }`}>
-                                    Angebot {String.fromCharCode(65 + i)}
-                                  </div>
-                                  <div className="text-sm text-muted-foreground">
-                                    {goodPercent}% im Rahmen
-                                  </div>
-                                  {doc.gesamtpreis && (
-                                    <div className="text-sm font-medium mt-1">
-                                      {doc.gesamtpreis.toLocaleString('de-DE')}€
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
+                    <div className="space-y-4">
+                      {successfulDocs.map((doc, i) => {
+                        const counts = getStatusCounts(doc.positionen || []);
+                        return (
+                          <div key={i} className="p-4 rounded-lg border">
+                            <div className="flex items-center justify-between mb-3">
+                              <h4 className="font-medium">{doc.fileName}</h4>
+                              <span className="font-bold">
+                                {doc.gesamtpreis?.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' }) || '–'}
+                              </span>
+                            </div>
+                            <StatusSummary counts={counts} />
                           </div>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <AlertCircle className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                        <p>Keine vergleichbaren Positionen gefunden.</p>
-                        <p className="text-sm">Die Dokumente enthalten unterschiedliche Leistungen.</p>
-                      </div>
-                    )}
+                        );
+                      })}
+                    </div>
                   </CardContent>
                 </Card>
               </TabsContent>
             )}
           </Tabs>
 
-          {/* Premium CTA */}
-          <Card className="mt-6 border-primary/20 bg-primary/5">
-            <CardContent className="p-4">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div className="flex items-start gap-3">
+          {/* CTA for PDF */}
+          <Card className="mt-8 bg-gradient-to-r from-primary/5 to-primary/10 border-primary/20">
+            <CardContent className="py-6">
+              <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
                   <div className="p-2 rounded-lg bg-primary/10">
-                    <Lock className="h-5 w-5 text-primary" />
+                    <Lock className="w-5 h-5 text-primary" />
                   </div>
                   <div>
-                    <h4 className="font-medium">Detaillierten PDF-Report erhalten</h4>
+                    <h3 className="font-semibold">Detaillierter PDF-Report</h3>
                     <p className="text-sm text-muted-foreground">
-                      Inkl. Quartil-Analyse, Marktdaten-Visualisierung & Empfehlungen
+                      Vollständige Analyse mit Marktpreisen, Begründungen und Empfehlungen
                     </p>
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                  <Button onClick={onRequestPDF} className="flex-1 sm:flex-none gap-2">
-                    <Download className="h-4 w-4" />
-                    PDF freischalten
-                    <Badge variant="secondary" className="ml-1">2,99€</Badge>
-                  </Button>
-                </div>
+                <Button onClick={onRequestPDF} className="gap-2">
+                  <Download className="w-4 h-4" />
+                  PDF kaufen
+                  <Badge variant="secondary">2,99€</Badge>
+                </Button>
               </div>
             </CardContent>
           </Card>

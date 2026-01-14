@@ -1,7 +1,8 @@
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { Shield, UserX, Eye } from "lucide-react";
+import { Shield, UserX, Eye, Wrench, Car } from "lucide-react";
 import { AnimatedTrafficLight } from "./AnimatedTrafficLight";
+import heroImage from "@/assets/hero-craftsman-mechanic.jpg";
 
 interface HeroSectionProps {
   onUploadClick?: () => void;
@@ -82,6 +83,23 @@ export function HeroSection({ onUploadClick }: HeroSectionProps) {
               </motion.p>
             </div>
 
+            {/* Category badges */}
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.45 }}
+              className="flex flex-wrap gap-3"
+            >
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-500/10 border border-amber-500/20">
+                <Wrench className="w-5 h-5 text-amber-600" />
+                <span className="font-medium text-amber-700 dark:text-amber-400">Handwerk</span>
+              </div>
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-500/10 border border-blue-500/20">
+                <Car className="w-5 h-5 text-blue-600" />
+                <span className="font-medium text-blue-700 dark:text-blue-400">KFZ-Werkstatt</span>
+              </div>
+            </motion.div>
+
             {/* CTA Buttons */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -113,18 +131,46 @@ export function HeroSection({ onUploadClick }: HeroSectionProps) {
               transition={{ delay: 0.6 }}
               className="text-sm text-muted-foreground"
             >
-              Unterstützte Formate: PDF, JPG, PNG, Excel, CSV • Max. 10 MB pro Datei
+              Unterstützte Formate: PDF, JPG, PNG, Excel • Max. 10 MB pro Datei
             </motion.p>
           </motion.div>
 
-          {/* Right Visual - Animated Traffic Light */}
+          {/* Right Visual - Hero Image with Traffic Light */}
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: 0.4, duration: 0.6 }}
             className="hidden lg:flex justify-center items-center"
           >
-            <AnimatedTrafficLight />
+            <div className="relative w-full max-w-lg">
+              {/* Hero Image */}
+              <div className="relative rounded-2xl overflow-hidden shadow-2xl border border-border/50">
+                <img 
+                  src={heroImage} 
+                  alt="Handwerker und KFZ-Mechaniker - Beide Branchen abgedeckt"
+                  className="w-full h-auto object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-background/80 via-transparent to-transparent" />
+                
+                {/* Overlay text */}
+                <div className="absolute bottom-4 left-4 right-4">
+                  <p className="text-sm text-foreground/90 font-medium text-center">
+                    Für alle Handwerks- und KFZ-Werkstatt-Angebote
+                  </p>
+                </div>
+              </div>
+              
+              {/* Traffic Light Badge */}
+              <div className="absolute -bottom-6 -right-6 md:-right-12 scale-50 origin-bottom-right">
+                <div className="bg-card rounded-xl shadow-xl border border-border p-2">
+                  <AnimatedTrafficLight />
+                </div>
+              </div>
+              
+              {/* Decorative elements */}
+              <div className="absolute -top-4 -left-4 w-24 h-24 bg-primary/10 rounded-full blur-2xl" />
+              <div className="absolute -bottom-8 -right-8 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl" />
+            </div>
           </motion.div>
         </div>
       </div>

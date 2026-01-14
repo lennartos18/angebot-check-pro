@@ -236,7 +236,7 @@ Brutto: ${extractResult.gesamtsumme_brutto || extractResult.summe_brutto || 'Unb
     const systemPrompt = `Du bist ein Experte für die Bewertung von Handwerker-Angeboten, Kostenvoranschlägen und Rechnungen in Deutschland.
 
 DEINE AUFGABE:
-1. Extrahiere NUR bepreiste Positionen aus dem Dokument (Positionen mit Gesamtpreis)
+1. Extrahiere ALLE Positionen die im Original-Dokument mit einem EIGENEN Preis versehen sind
 2. Bewerte jede bepreiste Position anhand von Marktdaten
 3. Gib eine Gesamtbewertung ab
 
@@ -257,10 +257,11 @@ BEWERTUNGSSTUFEN (EXAKT diese Werte verwenden):
 3. Pauschalangebote → Trotzdem einordnen! Vergleiche mit typischen Gesamtkosten für ähnliche Projekte
 4. "nicht_einordenbar" VERBOTEN wenn Marktdaten berechnet werden können
 
-⚠️ KRITISCH - NUR BEPREISTE POSITIONEN:
-1. Technische Beschreibungen ohne eigenen Preis → NICHT als Position aufnehmen
-2. Spezifikationen/Ausstattungsdetails → NICHT als Position aufnehmen
-3. Nur Zeilen mit konkretem Gesamtpreis (€) werden zu Positionen
+⚠️ POSITIONS-EXTRAKTION:
+1. Extrahiere GENAU die Positionen die im Dokument einen EIGENEN Gesamtpreis (€) haben
+2. PAUSCHALANGEBOTE (z.B. Treppe komplett 3.550€ mit vielen Unterpunkten): Das ist EINE Position - beschreibe die Hauptleistung, liste wichtige Ausstattungsmerkmale im Beschreibungstext
+3. DETAILLIERTE ANGEBOTE (mehrere Positionen mit je eigenem Preis): Extrahiere JEDE einzeln bepreiste Position separat
+4. ZÄHLE NUR Positionen mit eigenem €-Betrag - Unterpunkte/Spezifikationen ohne Preis sind Teil der Hauptposition
 
 WICHTIGE REGELN:
 1. Verwende die internen Marktdaten wenn verfügbar
@@ -292,7 +293,7 @@ Antworte IMMER als valides JSON mit dieser Struktur:
   "positionen": [
     {
       "position_nummer": 1,
-      "beschreibung": "Positionsbeschreibung",
+      "beschreibung": "Positionsbeschreibung (bei Pauschalangeboten: Hauptleistung + wichtige Ausstattungsmerkmale)",
       "material": "Material oder null",
       "menge": Zahl oder null,
       "einheit": "Stück/m²/Stunde/etc oder null",

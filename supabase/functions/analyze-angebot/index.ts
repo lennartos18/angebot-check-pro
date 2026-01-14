@@ -243,39 +243,56 @@ DEINE AUFGABE:
 ${marktpreisContext}
 ${regionContext}
 
-BEWERTUNGSSTUFEN (EXAKT diese Werte verwenden):
-- "im_regionalen_rahmen": Preis liegt im normalen Bereich (±15% vom Durchschnitt)
-- "leicht_ueber_vergleich": Preis liegt 15-30% über dem Durchschnitt
-- "leicht_unter_vergleich": Preis liegt 15-30% unter dem Durchschnitt
-- "auffaellig_hoch": Preis liegt mehr als 30% über dem Durchschnitt
-- "auffaellig_niedrig": Preis liegt mehr als 25% unter dem Durchschnitt
-- "nicht_einordenbar": NUR bei echten Notdiensten (nachts, Wochenende) oder absoluten Einzelstücken ohne jegliche Vergleichsmöglichkeit
+⚠️⚠️⚠️ MATHEMATISCH VERBINDLICHE BEWERTUNGSREGELN ⚠️⚠️⚠️
+
+SCHRITT 1: Berechne abweichung_prozent:
+abweichung_prozent = ((gesamtpreis - marktpreis_durchschnitt) / marktpreis_durchschnitt) * 100
+
+SCHRITT 2: Bestimme einordnung_stufe STRIKT nach dieser Tabelle:
+┌─────────────────────────┬──────────────────────────┐
+│ abweichung_prozent      │ einordnung_stufe         │
+├─────────────────────────┼──────────────────────────┤
+│ > +30                   │ auffaellig_hoch          │
+│ +15 bis +30             │ leicht_ueber_vergleich   │
+│ -15 bis +15             │ im_regionalen_rahmen     │
+│ -30 bis -15             │ leicht_unter_vergleich   │
+│ < -30                   │ auffaellig_niedrig       │
+└─────────────────────────┴──────────────────────────┘
+
+BEISPIELE zur Verdeutlichung:
+- abweichung_prozent = +45 → einordnung_stufe = "auffaellig_hoch"
+- abweichung_prozent = +22 → einordnung_stufe = "leicht_ueber_vergleich"
+- abweichung_prozent = +5  → einordnung_stufe = "im_regionalen_rahmen"
+- abweichung_prozent = -10 → einordnung_stufe = "im_regionalen_rahmen"
+- abweichung_prozent = -25 → einordnung_stufe = "leicht_unter_vergleich"
+- abweichung_prozent = -61 → einordnung_stufe = "auffaellig_niedrig"
+
+"nicht_einordenbar" → NUR bei echten Notdiensten oder wenn KEINE Marktdaten möglich sind
 
 ⚠️ KRITISCH - EINORDNUNGS-PFLICHT:
-1. Wenn du marktpreis_min, marktpreis_max oder marktpreis_durchschnitt angeben KANNST → MUSS eine Einordnung erfolgen (NIEMALS "nicht_einordenbar")
-2. Spezialanfertigungen (Treppen, Küchen, Möbel) → Trotzdem einordnen! Nutze Preis-pro-Qualität-Verhältnis
-3. Pauschalangebote → Trotzdem einordnen! Vergleiche mit typischen Gesamtkosten für ähnliche Projekte
-4. "nicht_einordenbar" VERBOTEN wenn Marktdaten berechnet werden können
+1. Wenn du marktpreis_durchschnitt angeben KANNST → MUSS eine Einordnung basierend auf abweichung_prozent erfolgen
+2. Die einordnung_stufe MUSS mathematisch zur abweichung_prozent passen!
+3. Spezialanfertigungen → Trotzdem einordnen mit geschätzten Marktpreisen
+4. Pauschalangebote → Trotzdem einordnen mit Vergleich zu ähnlichen Projekten
 
 ⚠️ POSITIONS-EXTRAKTION:
 1. Extrahiere GENAU die Positionen die im Dokument einen EIGENEN Gesamtpreis (€) haben
-2. PAUSCHALANGEBOTE (z.B. Treppe komplett 3.550€ mit vielen Unterpunkten): Das ist EINE Position - beschreibe die Hauptleistung, liste wichtige Ausstattungsmerkmale im Beschreibungstext
-3. DETAILLIERTE ANGEBOTE (mehrere Positionen mit je eigenem Preis): Extrahiere JEDE einzeln bepreiste Position separat
-4. ZÄHLE NUR Positionen mit eigenem €-Betrag - Unterpunkte/Spezifikationen ohne Preis sind Teil der Hauptposition
+2. PAUSCHALANGEBOTE (z.B. Treppe komplett 3.550€ mit vielen Unterpunkten): Das ist EINE Position
+3. DETAILLIERTE ANGEBOTE (mehrere Positionen mit je eigenem Preis): Extrahiere JEDE einzeln
+4. ZÄHLE NUR Positionen mit eigenem €-Betrag
 
 WICHTIGE REGELN:
 1. Verwende die internen Marktdaten wenn verfügbar
 2. Wenn keine internen Daten: Nutze dein Marktwissen für Deutschland 2025/2026
-3. IMMER konkrete Preisschätzungen angeben (marktpreis_min, marktpreis_max, marktpreis_durchschnitt)
-4. IMMER Datengrundlage nennen: "Interne Marktdaten", "Branchendurchschnitt Deutschland" oder "Allgemeine Markteinschätzung"
+3. IMMER konkrete Preisschätzungen angeben
+4. IMMER Datengrundlage nennen
 5. Gib IMMER einen kurzen, verständlichen Hinweis pro Position
 
 HINWEIS-BEISPIELE:
 - "Im regionalen Rahmen für Hamburg, typisch für Sanitärarbeiten"
 - "Leicht über dem Marktdurchschnitt, aber vertretbar bei Qualitätsarbeit"
 - "Auffällig hoch - Nachverhandlung empfohlen"
-- "Günstiger als üblich - Qualität prüfen"
-- "Sehr günstig für eine Holztreppe dieser Qualität"
+- "Auffällig günstig - Qualität und Leistungsumfang prüfen"
 
 Antworte IMMER als valides JSON mit dieser Struktur:
 {
@@ -491,25 +508,69 @@ Antworte IMMER als valides JSON mit dieser Struktur:
       throw new Error('Konnte KI-Antwort nicht parsen - Dokument möglicherweise zu komplex');
     }
 
-    // Ensure all positions have required fields with defaults
+    // Funktion zur mathematischen Validierung und Korrektur der einordnung_stufe
+    function validateAndCorrectEinordnung(pos: Position): Position {
+      const abweichung = pos.abweichung_prozent;
+      
+      // Wenn keine Abweichung berechnet wurde, nichts korrigieren
+      if (abweichung === undefined || abweichung === null) {
+        return pos;
+      }
+      
+      // Mathematisch korrekte einordnung_stufe bestimmen
+      let korrekteEinordnung: string;
+      if (abweichung > 30) {
+        korrekteEinordnung = 'auffaellig_hoch';
+      } else if (abweichung >= 15) {
+        korrekteEinordnung = 'leicht_ueber_vergleich';
+      } else if (abweichung >= -15) {
+        korrekteEinordnung = 'im_regionalen_rahmen';
+      } else if (abweichung >= -30) {
+        korrekteEinordnung = 'leicht_unter_vergleich';
+      } else {
+        korrekteEinordnung = 'auffaellig_niedrig';
+      }
+      
+      // Prüfen ob Korrektur notwendig
+      if (pos.einordnung_stufe !== korrekteEinordnung) {
+        console.warn(`⚠️ EINORDNUNG KORRIGIERT: Position "${pos.beschreibung?.substring(0, 50)}..." - ${pos.einordnung_stufe} → ${korrekteEinordnung} (abweichung: ${abweichung.toFixed(1)}%)`);
+        pos.einordnung_stufe = korrekteEinordnung;
+        
+        // Hinweis anpassen wenn nötig
+        if (korrekteEinordnung === 'auffaellig_niedrig' && pos.hinweis?.includes('im Rahmen')) {
+          pos.hinweis = `Auffällig günstig (${Math.abs(abweichung).toFixed(0)}% unter Durchschnitt) - Qualität und Leistungsumfang prüfen`;
+        } else if (korrekteEinordnung === 'auffaellig_hoch' && pos.hinweis?.includes('im Rahmen')) {
+          pos.hinweis = `Auffällig teuer (${abweichung.toFixed(0)}% über Durchschnitt) - Nachverhandlung empfohlen`;
+        }
+      }
+      
+      return pos;
+    }
+
+    // Ensure all positions have required fields with defaults AND validate einordnung
     if (analysisResult.positionen) {
-      analysisResult.positionen = analysisResult.positionen.map((pos, index) => ({
-        position_nummer: pos.position_nummer || index + 1,
-        beschreibung: pos.beschreibung || 'Unbekannte Position',
-        material: pos.material || undefined,
-        menge: pos.menge || undefined,
-        einheit: pos.einheit || undefined,
-        einzelpreis: pos.einzelpreis || undefined,
-        gesamtpreis: pos.gesamtpreis || 0,
-        einordnung_stufe: pos.einordnung_stufe || 'nicht_einordenbar',
-        einordnung_begruendung: pos.einordnung_begruendung || 'Keine Begründung verfügbar',
-        marktpreis_min: pos.marktpreis_min || undefined,
-        marktpreis_max: pos.marktpreis_max || undefined,
-        marktpreis_durchschnitt: pos.marktpreis_durchschnitt || undefined,
-        abweichung_prozent: pos.abweichung_prozent || undefined,
-        datengrundlage: pos.datengrundlage || 'Allgemeine Markteinschätzung',
-        hinweis: pos.hinweis || 'Keine weiteren Hinweise'
-      }));
+      analysisResult.positionen = analysisResult.positionen.map((pos, index) => {
+        const normalizedPos: Position = {
+          position_nummer: pos.position_nummer || index + 1,
+          beschreibung: pos.beschreibung || 'Unbekannte Position',
+          material: pos.material || undefined,
+          menge: pos.menge || undefined,
+          einheit: pos.einheit || undefined,
+          einzelpreis: pos.einzelpreis || undefined,
+          gesamtpreis: pos.gesamtpreis || 0,
+          einordnung_stufe: pos.einordnung_stufe || 'nicht_einordenbar',
+          einordnung_begruendung: pos.einordnung_begruendung || 'Keine Begründung verfügbar',
+          marktpreis_min: pos.marktpreis_min || undefined,
+          marktpreis_max: pos.marktpreis_max || undefined,
+          marktpreis_durchschnitt: pos.marktpreis_durchschnitt || undefined,
+          abweichung_prozent: pos.abweichung_prozent || undefined,
+          datengrundlage: pos.datengrundlage || 'Allgemeine Markteinschätzung',
+          hinweis: pos.hinweis || 'Keine weiteren Hinweise'
+        };
+        
+        // Validiere und korrigiere die einordnung_stufe basierend auf abweichung_prozent
+        return validateAndCorrectEinordnung(normalizedPos);
+      });
     }
 
     const duration = Date.now() - startTime;

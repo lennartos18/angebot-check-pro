@@ -6,19 +6,17 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { 
   FileText, 
-  TrendingUp, 
-  AlertCircle, 
-  CheckCircle,
   BarChart3,
   Download,
   Lock,
   Info,
   MapPin,
   ArrowLeft,
-  Home
+  Home,
+  Sparkles
 } from 'lucide-react';
 import { StatusBadge, EvaluationLevel } from './StatusBadge';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Header } from './Header';
 
 interface Position {
@@ -78,6 +76,7 @@ interface DocumentResult {
   service_domain?: string;
   handwerker_name?: string;
   handwerker_firma?: string;
+  analysis_summary?: string;
 }
 
 interface MultiDocumentAnalysisViewProps {
@@ -206,8 +205,7 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
   };
 
   return (
-    <TooltipProvider>
-      <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background">
         {/* Header with navigation */}
         <Header onUploadClick={onClose} />
         
@@ -298,13 +296,27 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
                     </CardHeader>
                     
                     <CardContent className="pt-0">
+                      {/* AI Summary */}
+                      {doc.analysis_summary && (
+                        <div className="mb-6 p-4 rounded-lg bg-muted/50 border">
+                          <div className="flex items-start gap-3">
+                            <Sparkles className="w-5 h-5 text-primary mt-0.5 shrink-0" />
+                            <div>
+                              <h4 className="font-medium text-sm mb-1">KI-Einschätzung</h4>
+                              <p className="text-sm text-muted-foreground leading-relaxed">
+                                {doc.analysis_summary}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Desktop Table */}
                       <div className="hidden sm:block overflow-x-auto">
                         <Table>
                           <TableHeader>
                             <TableRow className="hover:bg-transparent">
-                              <TableHead className="w-[40%]">Position</TableHead>
-                              <TableHead>Material</TableHead>
+                              <TableHead className="w-[50%]">Position</TableHead>
                               <TableHead className="text-right">Menge</TableHead>
                               <TableHead className="text-right">Status</TableHead>
                             </TableRow>
@@ -319,9 +331,6 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
                                   <TableCell className="font-medium">
                                     {pos.beschreibung}
                                   </TableCell>
-                                  <TableCell className="text-muted-foreground">
-                                    {pos.material || '–'}
-                                  </TableCell>
                                   <TableCell className="text-right">
                                     {pos.menge != null ? `${pos.menge} ${pos.einheit || ''}`.trim() : '–'}
                                   </TableCell>
@@ -329,13 +338,13 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
                                     <div className="flex items-center justify-end gap-2">
                                       <StatusBadge status={status} size="sm" />
                                       {hasDetails && (
-                                        <Tooltip>
-                                          <TooltipTrigger asChild>
+                                        <Popover>
+                                          <PopoverTrigger asChild>
                                             <button className="p-1 rounded-full hover:bg-muted/50 transition-colors">
                                               <Info className="h-4 w-4 text-muted-foreground hover:text-foreground" />
                                             </button>
-                                          </TooltipTrigger>
-                                          <TooltipContent 
+                                          </PopoverTrigger>
+                                          <PopoverContent 
                                             side="left" 
                                             className="max-w-xs p-3 space-y-2"
                                           >
@@ -369,8 +378,8 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
                                                 📊 {getDataSourceDisplay(pos.datengrundlage, pos.datenquelle)}
                                               </p>
                                             )}
-                                          </TooltipContent>
-                                        </Tooltip>
+                                          </PopoverContent>
+                                        </Popover>
                                       )}
                                     </div>
                                   </TableCell>
@@ -391,12 +400,11 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
                                 <p className="font-medium text-sm">{pos.beschreibung}</p>
                                 <StatusBadge status={status} size="sm" />
                               </div>
-                              <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-                                {pos.material && <span>{pos.material}</span>}
-                                {pos.menge != null && (
-                                  <span>{pos.menge} {pos.einheit || ''}</span>
-                                )}
-                              </div>
+                              {pos.menge != null && (
+                                <p className="text-xs text-muted-foreground">
+                                  {pos.menge} {pos.einheit || ''}
+                                </p>
+                              )}
                               {pos.einordnung_begruendung && (
                                 <p className="mt-2 text-xs text-muted-foreground">
                                   {pos.einordnung_begruendung}
@@ -480,6 +488,5 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
           </Card>
         </div>
       </div>
-    </TooltipProvider>
   );
 }

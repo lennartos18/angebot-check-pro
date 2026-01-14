@@ -19,6 +19,12 @@ import { StatusBadge, EvaluationLevel } from './StatusBadge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Header } from './Header';
 
+interface ConfidenceInfo {
+  level: 'hoch' | 'mittel' | 'eingeschraenkt';
+  reason: string;
+  samples: number;
+}
+
 interface Position {
   beschreibung: string;
   material?: string;
@@ -35,6 +41,7 @@ interface Position {
   marktpreis_max?: number;
   marktpreis_durchschnitt?: number;
   hinweis?: string;
+  confidence?: ConfidenceInfo;
 }
 
 // Map datengrundlage to user-friendly display text
@@ -377,6 +384,20 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
                                               <p className="text-xs text-muted-foreground/70 border-t border-border pt-2">
                                                 📊 {getDataSourceDisplay(pos.datengrundlage, pos.datenquelle)}
                                               </p>
+                                            )}
+                                            {pos.confidence && (
+                                              <div className="text-xs border-t border-border pt-2 flex items-center gap-1.5">
+                                                <span className={`w-2 h-2 rounded-full ${
+                                                  pos.confidence.level === 'hoch' 
+                                                    ? 'bg-green-500' 
+                                                    : pos.confidence.level === 'mittel' 
+                                                    ? 'bg-yellow-500' 
+                                                    : 'bg-gray-400'
+                                                }`} />
+                                                <span className="text-muted-foreground">
+                                                  {pos.confidence.reason}
+                                                </span>
+                                              </div>
                                             )}
                                           </PopoverContent>
                                         </Popover>

@@ -62,11 +62,17 @@ interface InternalMetrics {
   evaluation_mode: "internal_only" | "weighted_mixed" | "external_fallback" | "no_data";
 }
 
+// Öffentliche Confidence-Info für Kunden
+interface PublicConfidence {
+  level: "hoch" | "mittel" | "eingeschraenkt";
+  reason: string;
+  samples: number;
+}
+
 interface EvaluationResult {
   evaluation_level: EvaluationLevel;
   evaluation_reason: string;
   data_basis_description: string;
-  // Keine uncertainty_note mehr für Kunden!
   data_source: "internal" | "mixed" | "external_only" | "none";
   internal_count: number;
   external_source_name?: string;
@@ -76,6 +82,8 @@ interface EvaluationResult {
     quartile_3: number;
   };
   deviation_percent: number | null;
+  // NEU: Öffentliche Confidence für Kunden
+  confidence: PublicConfidence;
   // Interne Metriken (nur für Backend/Analytics)
   _internal_metrics?: InternalMetrics;
 }
@@ -110,6 +118,31 @@ function calculateConfidenceScore(
   const externalPenalty = externalUsed ? 0.9 : 1.0;
 
   return Math.round(baseScore * consistencyMultiplier * externalPenalty);
+}
+
+/**
+ * Erzeugt kundenfreundliche Confidence-Info
+ */
+function createPublicConfidence(internalCount: number, confidenceScore: number): PublicConfidence {
+  if (confidenceScore >= 75 && internalCount >= 30) {
+    return {
+      level: "hoch",
+      reason: `Basierend auf ${internalCount} vergleichbaren Angeboten`,
+      samples: internalCount
+    };
+  } else if (confidenceScore >= 50 || internalCount >= 10) {
+    return {
+      level: "mittel",
+      reason: "Regionale Vergleichsdaten verfügbar",
+      samples: internalCount
+    };
+  } else {
+    return {
+      level: "eingeschraenkt",
+      reason: "Begrenzte Vergleichsdaten für diese Position",
+      samples: internalCount
+    };
+  }
 }
 
 /**
@@ -430,6 +463,7 @@ Deno.serve(async (req) => {
           quartile_3: internalStats.q3
         },
         deviation_percent: evaluation.deviation,
+        confidence: createPublicConfidence(internalStats.count, confidenceScore),
         _internal_metrics: {
           confidence_score: confidenceScore,
           internal_weight: 1.0,
@@ -456,16 +490,15 @@ Deno.serve(async (req) => {
         evaluation_level: evaluation.level,
         evaluation_reason: evaluation.reason,
         data_basis_description: formatDataBasis(internalStats.count, bundesland),
-        // Keine Hinweise auf externe Daten für Kunden!
         data_source: "mixed",
         internal_count: internalStats.count,
-        // external_source_name wird nicht an Kunden weitergegeben
         statistics: {
           quartile_1: combinedStats.q1,
           median: combinedStats.median,
           quartile_3: combinedStats.q3
         },
         deviation_percent: evaluation.deviation,
+        confidence: createPublicConfidence(internalStats.count, confidenceScore),
         _internal_metrics: {
           confidence_score: confidenceScore,
           internal_weight: weights.internal,
@@ -489,7 +522,6 @@ Deno.serve(async (req) => {
       result = {
         evaluation_level: evaluation.level,
         evaluation_reason: evaluation.reason,
-        // Professionelle Formulierung ohne Hinweis auf externe Daten
         data_basis_description: formatDataBasis(0, bundesland),
         data_source: "external_only",
         internal_count: 0,
@@ -499,6 +531,7 @@ Deno.serve(async (req) => {
           quartile_3: externalRef.price_max
         },
         deviation_percent: evaluation.deviation,
+        confidence: createPublicConfidence(0, confidenceScore),
         _internal_metrics: {
           confidence_score: confidenceScore,
           internal_weight: 0.0,
@@ -517,6 +550,7 @@ Deno.serve(async (req) => {
         data_source: "none",
         internal_count: 0,
         deviation_percent: null,
+        confidence: createPublicConfidence(0, 0),
         _internal_metrics: {
           confidence_score: 0,
           internal_weight: 0.0,

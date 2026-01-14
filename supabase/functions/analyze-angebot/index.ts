@@ -67,7 +67,7 @@ serve(async (req) => {
     console.log('Received body keys:', Object.keys(body));
     
     // Support both field naming conventions
-    const documentContent = body.documentContent || body.extractedText || null;
+    let documentContent = body.documentContent || body.extractedText || null;
     let imageBase64 = body.imageBase64 || body.fileBase64 || null;
     const documentType = body.documentType || 'Angebot';
     const plz = body.plz || '';
@@ -95,6 +95,69 @@ serve(async (req) => {
     console.log('Clean imageBase64 present:', !!imageBase64, 'length:', imageBase64?.length || 0);
     console.log('Detected mimeType:', detectedMimeType);
     console.log('documentContent present:', !!documentContent);
+
+    // PDF-Dateien können nicht direkt an Vision-Modelle gesendet werden
+    // Sie müssen erst extrahiert werden
+    const isPdf = detectedMimeType.includes('pdf') || detectedMimeType === 'application/pdf';
+    
+    if (isPdf && imageBase64 && !documentContent) {
+      console.log('PDF erkannt - rufe extract-pdf auf...');
+      
+      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+      
+      // Call extract-pdf to get text content
+      const extractResponse = await fetch(`${supabaseUrl}/functions/v1/extract-pdf`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${supabaseKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fileBase64: `data:application/pdf;base64,${imageBase64}`,
+          fileType: 'application/pdf'
+        }),
+      });
+      
+      if (!extractResponse.ok) {
+        const errorText = await extractResponse.text();
+        console.error('extract-pdf Fehler:', extractResponse.status, errorText);
+        throw new Error('PDF-Extraktion fehlgeschlagen');
+      }
+      
+      const extractResult = await extractResponse.json();
+      console.log('PDF-Extraktion erfolgreich, Positionen:', extractResult.positionen?.length || 0);
+      
+      // Use extracted text for analysis
+      if (extractResult.positionen && extractResult.positionen.length > 0) {
+        // Format extracted positions as text for analysis
+        const positionsText = extractResult.positionen.map((p: any, i: number) => 
+          `Position ${i + 1}: ${p.beschreibung || 'Unbekannt'}` +
+          (p.menge ? ` | Menge: ${p.menge} ${p.einheit || ''}` : '') +
+          (p.einzelpreis ? ` | Einzelpreis: ${p.einzelpreis}€` : '') +
+          (p.gesamtpreis ? ` | Gesamt: ${p.gesamtpreis}€` : '')
+        ).join('\n');
+        
+        documentContent = `EXTRAHIERTE DOKUMENTDATEN:
+Firma: ${extractResult.firma || 'Unbekannt'}
+Datum: ${extractResult.datum || 'Unbekannt'}
+Dokumentnummer: ${extractResult.dokumentnummer || 'Unbekannt'}
+
+POSITIONEN:
+${positionsText}
+
+SUMMEN:
+Netto: ${extractResult.summe_netto || 'Unbekannt'}€
+MwSt: ${extractResult.mwst_betrag || 'Unbekannt'}€
+Brutto: ${extractResult.summe_brutto || 'Unbekannt'}€`;
+        
+        // Clear imageBase64 since we now have text content
+        imageBase64 = null;
+        console.log('PDF in Text konvertiert, Länge:', documentContent.length);
+      } else {
+        throw new Error('PDF enthält keine extrahierbaren Positionen');
+      }
+    }
 
     if (!documentContent && !imageBase64) {
       throw new Error('Kein Dokumentinhalt oder Bild übermittelt');

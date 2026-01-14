@@ -129,6 +129,7 @@ export type Database = {
           comparison_eligible: boolean | null
           created_at: string | null
           document_id: string
+          embedding: string | null
           id: string
           normalization_confidence: number | null
           normalization_status: string | null
@@ -150,6 +151,7 @@ export type Database = {
           comparison_eligible?: boolean | null
           created_at?: string | null
           document_id: string
+          embedding?: string | null
           id?: string
           normalization_confidence?: number | null
           normalization_status?: string | null
@@ -171,6 +173,7 @@ export type Database = {
           comparison_eligible?: boolean | null
           created_at?: string | null
           document_id?: string
+          embedding?: string | null
           id?: string
           normalization_confidence?: number | null
           normalization_status?: string | null
@@ -637,6 +640,7 @@ export type Database = {
       normalized_materials: {
         Row: {
           created_at: string | null
+          embedding: string | null
           id: string
           keywords: string[] | null
           material_category: string | null
@@ -646,6 +650,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
+          embedding?: string | null
           id?: string
           keywords?: string[] | null
           material_category?: string | null
@@ -655,6 +660,7 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
+          embedding?: string | null
           id?: string
           keywords?: string[] | null
           material_category?: string | null
@@ -669,6 +675,7 @@ export type Database = {
           category_id: string | null
           created_at: string | null
           description: string | null
+          embedding: string | null
           id: string
           keywords: string[] | null
           name: string
@@ -679,6 +686,7 @@ export type Database = {
           category_id?: string | null
           created_at?: string | null
           description?: string | null
+          embedding?: string | null
           id?: string
           keywords?: string[] | null
           name: string
@@ -689,6 +697,7 @@ export type Database = {
           category_id?: string | null
           created_at?: string | null
           description?: string | null
+          embedding?: string | null
           id?: string
           keywords?: string[] | null
           name?: string
@@ -1001,6 +1010,60 @@ export type Database = {
           },
         ]
       }
+      service_suggestions: {
+        Row: {
+          approved_service_id: string | null
+          cluster_size: number | null
+          created_at: string | null
+          id: string
+          service_domain: string
+          similar_position_ids: string[] | null
+          status: string | null
+          suggested_keywords: string[] | null
+          suggested_name: string
+          updated_at: string | null
+        }
+        Insert: {
+          approved_service_id?: string | null
+          cluster_size?: number | null
+          created_at?: string | null
+          id?: string
+          service_domain: string
+          similar_position_ids?: string[] | null
+          status?: string | null
+          suggested_keywords?: string[] | null
+          suggested_name: string
+          updated_at?: string | null
+        }
+        Update: {
+          approved_service_id?: string | null
+          cluster_size?: number | null
+          created_at?: string | null
+          id?: string
+          service_domain?: string
+          similar_position_ids?: string[] | null
+          status?: string | null
+          suggested_keywords?: string[] | null
+          suggested_name?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_suggestions_approved_service_id_fkey"
+            columns: ["approved_service_id"]
+            isOneToOne: false
+            referencedRelation: "admin_price_variance"
+            referencedColumns: ["service_id"]
+          },
+          {
+            foreignKeyName: "service_suggestions_approved_service_id_fkey"
+            columns: ["approved_service_id"]
+            isOneToOne: false
+            referencedRelation: "normalized_services"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       text_normalizations: {
         Row: {
           cleaned_text: string
@@ -1219,8 +1282,54 @@ export type Database = {
     Functions: {
       anonymize_text: { Args: { input_text: string }; Returns: string }
       cleanup_old_cache_entries: { Args: never; Returns: undefined }
+      find_similar_unmatched: {
+        Args: {
+          max_count?: number
+          query_embedding: string
+          threshold?: number
+        }
+        Returns: {
+          id: string
+          raw_text: string
+          service_domain: string
+          similarity: number
+        }[]
+      }
       generate_time_bucket: { Args: { d: string }; Returns: string }
       get_region_cluster_id: { Args: { plz: string }; Returns: string }
+      match_materials: {
+        Args: {
+          match_count?: number
+          match_threshold?: number
+          query_embedding: string
+          target_service_domain?: string
+        }
+        Returns: {
+          id: string
+          keywords: string[]
+          material_category: string
+          name: string
+          service_domain: string
+          similarity: number
+          standard_unit: string
+        }[]
+      }
+      match_services: {
+        Args: {
+          match_count?: number
+          match_threshold?: number
+          query_embedding: string
+          target_service_domain?: string
+        }
+        Returns: {
+          id: string
+          keywords: string[]
+          name: string
+          service_domain: string
+          similarity: number
+          standard_unit: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

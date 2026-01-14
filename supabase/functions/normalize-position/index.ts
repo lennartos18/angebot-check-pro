@@ -25,6 +25,9 @@ interface NormalizationResult {
   confidence_score: number;
   normalization_status: 'normalized' | 'unmatched';
   matching_keywords: string[];
+  // Matching method
+  match_method: 'embedding' | 'keyword' | 'learned' | 'none';
+  embedding_similarity?: number;
   // Kfz-spezifische Felder
   kfz_part_type?: 'oem' | 'aftermarket' | 'no_name' | null;
   labor_units_aw?: number | null;
@@ -68,8 +71,18 @@ interface ExistingNormalization {
   match_count: number;
 }
 
+interface EmbeddingMatch {
+  id: string;
+  name: string;
+  service_domain: string;
+  keywords: string[] | null;
+  standard_unit: string | null;
+  similarity: number;
+}
+
 // Constants
 const CONFIDENCE_THRESHOLD = 70;
+const EMBEDDING_SIMILARITY_THRESHOLD = 0.75;
 
 // Kfz-spezifische Keywords für Ersatzteil-Klassifikation
 const OEM_KEYWORDS = [
@@ -221,21 +234,98 @@ async function findLearnedNormalization(
   return null;
 }
 
+// NEW: Generate embedding via Lovable AI Gateway
+async function generateEmbedding(text: string): Promise<number[] | null> {
+  const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+  if (!LOVABLE_API_KEY) {
+    console.warn('[normalize-position] LOVABLE_API_KEY not configured, skipping embedding');
+    return null;
+  }
+
+  try {
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/embeddings', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'text-embedding-3-small',
+        input: [text],
+      }),
+    });
+
+    if (!response.ok) {
+      console.error(`[normalize-position] Embedding API error: ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json();
+    return data.data?.[0]?.embedding || null;
+  } catch (error) {
+    console.error('[normalize-position] Error generating embedding:', error);
+    return null;
+  }
+}
+
+// NEW: Find match using embedding similarity
+async function findEmbeddingMatch(
+  supabase: SupabaseClient,
+  embedding: number[],
+  serviceDomain: string,
+  matchType: 'service' | 'material'
+): Promise<EmbeddingMatch | null> {
+  const rpcName = matchType === 'service' ? 'match_services' : 'match_materials';
+  
+  const { data, error } = await supabase.rpc(rpcName, {
+    query_embedding: JSON.stringify(embedding),
+    match_threshold: EMBEDDING_SIMILARITY_THRESHOLD,
+    match_count: 1,
+    target_service_domain: serviceDomain
+  });
+
+  if (error) {
+    console.error(`[normalize-position] Error in ${rpcName}:`, error);
+    return null;
+  }
+
+  if (data && data.length > 0) {
+    return data[0] as EmbeddingMatch;
+  }
+
+  return null;
+}
+
+// NEW: Save position embedding for future clustering
+async function savePositionEmbedding(
+  supabase: SupabaseClient,
+  positionId: string,
+  embedding: number[]
+): Promise<void> {
+  if (!positionId) return;
+  
+  try {
+    await supabase
+      .from('document_positions')
+      .update({ embedding: JSON.stringify(embedding) })
+      .eq('id', positionId);
+  } catch (error) {
+    console.error('[normalize-position] Error saving position embedding:', error);
+  }
+}
+
 // NEW: Kfz-Ersatzteil-Klassifikation
 function classifyKfzPartType(text: string): 'oem' | 'aftermarket' | 'no_name' | null {
   const lowerText = text.toLowerCase();
   
-  // Check OEM first (highest priority)
   if (OEM_KEYWORDS.some(kw => lowerText.includes(kw))) {
     return 'oem';
   }
   
-  // Check known aftermarket brands
   if (AFTERMARKET_KEYWORDS.some(kw => lowerText.includes(kw))) {
     return 'aftermarket';
   }
   
-  // Check no-name indicators
   if (NO_NAME_KEYWORDS.some(kw => lowerText.includes(kw))) {
     return 'no_name';
   }
@@ -261,16 +351,13 @@ function extractLaborUnits(text: string, unit?: string): number | null {
   const lowerText = text.toLowerCase();
   const lowerUnit = (unit || '').toLowerCase();
   
-  // Check if unit is AW
   if (lowerUnit === 'aw' || lowerUnit === 'arbeitswert' || lowerUnit === 'arbeitswerte') {
-    // Try to extract number from unit context
     const awMatch = lowerText.match(/(\d+(?:[.,]\d+)?)\s*(?:aw|arbeitswert)/i);
     if (awMatch) {
       return parseFloat(awMatch[1].replace(',', '.'));
     }
   }
   
-  // Look for AW pattern in text
   const awPattern = /(\d+(?:[.,]\d+)?)\s*(?:aw|arbeitswert|arbeitswerte)/i;
   const match = lowerText.match(awPattern);
   if (match) {
@@ -295,27 +382,22 @@ function validatePosition(
 ): string[] {
   const warnings: string[] = [];
   
-  // Check for missing quantity
   if (quantity === undefined || quantity === null || quantity <= 0) {
     warnings.push('Keine Mengenangabe vorhanden');
   }
   
-  // Check for missing unit
   if (!unit || unit.trim() === '') {
     warnings.push('Keine Einheit angegeben');
   }
   
-  // Check for very short description
   if (rawText.length < 5) {
     warnings.push('Beschreibung sehr kurz - möglicherweise unvollständig');
   }
   
-  // Check for missing price
   if (totalPrice === undefined || totalPrice === null) {
     warnings.push('Kein Preis angegeben');
   }
   
-  // Check for suspiciously high values
   if (totalPrice && totalPrice > 50000) {
     warnings.push('Auffällig hoher Positionswert - bitte prüfen');
   }
@@ -329,10 +411,8 @@ function preprocessText(
   stopwords: Set<string>,
   synonyms: Map<string, { canonical: string; weight: number }>
 ): string {
-  // Lowercase
   let text = rawText.toLowerCase();
   
-  // Replace German umlauts for consistent matching
   const umlautMap: Record<string, string> = {
     'ä': 'ae', 'ö': 'oe', 'ü': 'ue', 'ß': 'ss',
     'Ä': 'Ae', 'Ö': 'Oe', 'Ü': 'Ue'
@@ -341,19 +421,12 @@ function preprocessText(
     text = text.replace(new RegExp(umlaut, 'g'), replacement);
   }
   
-  // Remove special characters, keep alphanumeric and spaces
   text = text.replace(/[^\w\s]/g, ' ');
-  
-  // Remove multiple spaces
   text = text.replace(/\s+/g, ' ').trim();
   
-  // Split into words
   const words = text.split(' ');
-  
-  // Filter stopwords
   const filteredWords = words.filter(w => w.length > 1 && !stopwords.has(w));
   
-  // Apply synonyms (replace with canonical term)
   const normalizedWords = filteredWords.map(w => {
     const synonym = synonyms.get(w);
     return synonym ? synonym.canonical : w;
@@ -370,13 +443,11 @@ function classifyPositionType(
   const lowerText = text.toLowerCase();
   const lowerUnit = (unit || '').toLowerCase();
   
-  // Flat rate indicators (check first)
   const flatRateIndicators = ['pauschale', 'pauschal', 'anfahrt', 'kleinteile', 'entsorgung', 'psch'];
   if (flatRateIndicators.some(i => lowerText.includes(i) || lowerUnit.includes(i))) {
     return 'pauschale';
   }
   
-  // Spare part indicators (automotive specific) - enhanced
   const partIndicators = [
     'ersatzteil', 'teil', 'oem', 'original', 'zubehoer', 'aftermarket',
     'bremsbelag', 'bremsscheibe', 'filter', 'riemen', 'kupplung', 'stossdaempfer',
@@ -386,13 +457,11 @@ function classifyPositionType(
     return 'ersatzteil';
   }
   
-  // Labor indicators
   const laborIndicators = ['arbeit', 'stunde', 'std', 'montage', 'demontage', 'aw', 'arbeitswert', 'installation', 'einbau', 'ausbau'];
   if (laborIndicators.some(i => lowerText.includes(i) || lowerUnit.includes(i))) {
     return 'arbeitszeit';
   }
   
-  // Material indicators
   const materialIndicators = ['material', 'lieferung', 'stueck', 'stk', 'kg', 'liter', 'm2', 'qm', 'farbe', 'kleber', 'silikon', 'oel', 'filter'];
   if (materialIndicators.some(i => lowerText.includes(i) || lowerUnit.includes(i))) {
     return 'material';
@@ -401,7 +470,7 @@ function classifyPositionType(
   return 'sonstig';
 }
 
-// Step 3: Calculate match score
+// Step 3: Calculate match score (keyword-based fallback)
 function calculateMatchScore(
   cleanedText: string,
   keywords: string[] | null,
@@ -422,14 +491,12 @@ function calculateMatchScore(
     const weight = synonymInfo?.weight || 1.0;
     totalWeight += weight;
     
-    // Check for exact match
     if (textWords.includes(normalizedKeyword)) {
       matchedWeight += weight;
       matchedKeywords.push(keyword);
       continue;
     }
     
-    // Check for partial match (substring)
     const partialMatch = textWords.find(w => 
       (w.length > 3 && w.includes(normalizedKeyword)) || 
       (normalizedKeyword.length > 3 && normalizedKeyword.includes(w))
@@ -445,7 +512,7 @@ function calculateMatchScore(
   return { score, matchedKeywords };
 }
 
-// Step 4: Find best match among services or materials
+// Step 4: Find best match among services or materials (keyword-based fallback)
 function findBestMatch<T extends { id: string; name: string; keywords: string[] | null }>(
   cleanedText: string,
   items: T[],
@@ -480,7 +547,6 @@ async function learnFromNormalization(
   confidenceScore: number
 ): Promise<void> {
   try {
-    // Check if entry exists
     const { data } = await supabase
       .from('text_normalizations')
       .select('id, match_count')
@@ -491,7 +557,6 @@ async function learnFromNormalization(
     const existing = data && data.length > 0 ? data[0] as ExistingNormalization : null;
     
     if (existing) {
-      // Increment match count
       await supabase
         .from('text_normalizations')
         .update({ 
@@ -500,7 +565,6 @@ async function learnFromNormalization(
         })
         .eq('id', existing.id);
     } else {
-      // Create new entry
       await supabase
         .from('text_normalizations')
         .insert({
@@ -518,12 +582,12 @@ async function learnFromNormalization(
   }
 }
 
-// Main normalization function
+// Main normalization function with HYBRID MATCHING
 async function normalizePosition(
   supabase: SupabaseClient,
   input: NormalizationInput
 ): Promise<NormalizationResult> {
-  console.log(`Normalizing: "${input.raw_text}" (${input.service_domain})`);
+  console.log(`[normalize-position] Processing: "${input.raw_text}" (${input.service_domain})`);
   
   // Phase 4: Validate input
   const validationWarnings = validatePosition(
@@ -533,15 +597,8 @@ async function normalizePosition(
     input.total_price
   );
   
-  if (validationWarnings.length > 0) {
-    console.log(`Validation warnings: ${validationWarnings.join(', ')}`);
-  }
-  
   // Check for special services
   const isSpecial = isSpecialService(input.raw_text);
-  if (isSpecial) {
-    console.log('Detected special service (Notdienst/Sonderanfertigung)');
-  }
   
   // Load reference data
   const [stopwords, synonyms, services, materials] = await Promise.all([
@@ -553,11 +610,10 @@ async function normalizePosition(
   
   // Step 1: Preprocess text
   const cleanedText = preprocessText(input.raw_text, stopwords, synonyms);
-  console.log(`Cleaned text: "${cleanedText}"`);
+  console.log(`[normalize-position] Cleaned: "${cleanedText}"`);
   
   // Step 2: Classify position type
   const positionType = classifyPositionType(cleanedText, input.unit);
-  console.log(`Position type: ${positionType}`);
   
   // Phase 3: Kfz-specific classification
   let kfzPartType: 'oem' | 'aftermarket' | 'no_name' | null = null;
@@ -565,99 +621,158 @@ async function normalizePosition(
   let vehicleClass: string | null = null;
   
   if (input.service_domain === 'werkstatt') {
-    // Classify part type for materials/parts
     if (positionType === 'ersatzteil' || positionType === 'material') {
       kfzPartType = classifyKfzPartType(input.raw_text);
-      console.log(`Kfz part type: ${kfzPartType || 'unknown'}`);
     }
-    
-    // Extract labor units for labor positions
     if (positionType === 'arbeitszeit') {
       laborUnitsAw = extractLaborUnits(input.raw_text, input.unit);
-      if (laborUnitsAw) {
-        console.log(`Labor units (AW): ${laborUnitsAw}`);
-      }
     }
-    
-    // Detect vehicle class
     vehicleClass = detectVehicleClass(input.raw_text);
-    if (vehicleClass) {
-      console.log(`Vehicle class: ${vehicleClass}`);
-    }
   }
   
-  // Check for learned normalization first
+  // ========================================
+  // HYBRID MATCHING: 1. Learned → 2. Embedding → 3. Keyword
+  // ========================================
+  
+  let normalizedServiceId: string | null = null;
+  let normalizedServiceName: string | null = null;
+  let normalizedMaterialId: string | null = null;
+  let normalizedMaterialName: string | null = null;
+  let confidenceScore = 0;
+  let matchMethod: 'embedding' | 'keyword' | 'learned' | 'none' = 'none';
+  let matchedKeywords: string[] = [];
+  let embeddingSimilarity: number | undefined;
+  
+  // === STRATEGY 1: Check learned normalizations first ===
   const learned = await findLearnedNormalization(supabase, cleanedText, input.service_domain);
   if (learned && learned.confidence_score >= CONFIDENCE_THRESHOLD) {
-    console.log(`Using learned normalization with confidence ${learned.confidence_score}`);
-    
-    // Get names for response
-    let serviceName: string | null = null;
-    let materialName: string | null = null;
+    console.log(`[normalize-position] ✓ Using LEARNED match (confidence: ${learned.confidence_score})`);
     
     if (learned.normalized_service_id) {
       const service = services.find(s => s.id === learned.normalized_service_id);
-      serviceName = service?.name || null;
+      normalizedServiceId = learned.normalized_service_id;
+      normalizedServiceName = service?.name || null;
     }
     if (learned.normalized_material_id) {
       const material = materials.find(m => m.id === learned.normalized_material_id);
-      materialName = material?.name || null;
+      normalizedMaterialId = learned.normalized_material_id;
+      normalizedMaterialName = material?.name || null;
+    }
+    confidenceScore = learned.confidence_score;
+    matchMethod = 'learned';
+  }
+  
+  // === STRATEGY 2: Try embedding-based matching ===
+  if (matchMethod === 'none') {
+    console.log(`[normalize-position] 🔍 Trying EMBEDDING match...`);
+    
+    const embedding = await generateEmbedding(cleanedText);
+    
+    if (embedding) {
+      // Save embedding for position clustering
+      if (input.position_id) {
+        await savePositionEmbedding(supabase, input.position_id, embedding);
+      }
+      
+      // Determine what to search based on position type
+      let embeddingMatch: EmbeddingMatch | null = null;
+      
+      if (positionType === 'arbeitszeit' || positionType === 'pauschale') {
+        embeddingMatch = await findEmbeddingMatch(supabase, embedding, input.service_domain, 'service');
+      } else if (positionType === 'material' || positionType === 'ersatzteil') {
+        embeddingMatch = await findEmbeddingMatch(supabase, embedding, input.service_domain, 'material');
+      } else {
+        // Try both for 'sonstig'
+        const serviceMatch = await findEmbeddingMatch(supabase, embedding, input.service_domain, 'service');
+        const materialMatch = await findEmbeddingMatch(supabase, embedding, input.service_domain, 'material');
+        
+        if (serviceMatch && materialMatch) {
+          embeddingMatch = serviceMatch.similarity >= materialMatch.similarity ? serviceMatch : materialMatch;
+        } else {
+          embeddingMatch = serviceMatch || materialMatch;
+        }
+      }
+      
+      if (embeddingMatch && embeddingMatch.similarity >= EMBEDDING_SIMILARITY_THRESHOLD) {
+        console.log(`[normalize-position] ✓ EMBEDDING match: ${embeddingMatch.name} (similarity: ${embeddingMatch.similarity.toFixed(3)})`);
+        
+        // Determine if it's a service or material match
+        if (positionType === 'arbeitszeit' || positionType === 'pauschale' || positionType === 'sonstig') {
+          // Check if this is a service
+          const isService = services.some(s => s.id === embeddingMatch!.id);
+          if (isService) {
+            normalizedServiceId = embeddingMatch.id;
+            normalizedServiceName = embeddingMatch.name;
+          } else {
+            normalizedMaterialId = embeddingMatch.id;
+            normalizedMaterialName = embeddingMatch.name;
+          }
+        } else {
+          normalizedMaterialId = embeddingMatch.id;
+          normalizedMaterialName = embeddingMatch.name;
+        }
+        
+        confidenceScore = Math.round(embeddingMatch.similarity * 100);
+        matchMethod = 'embedding';
+        embeddingSimilarity = embeddingMatch.similarity;
+        matchedKeywords = embeddingMatch.keywords || [];
+      }
+    }
+  }
+  
+  // === STRATEGY 3: Fallback to keyword matching ===
+  if (matchMethod === 'none') {
+    console.log(`[normalize-position] 📝 Fallback to KEYWORD match...`);
+    
+    let bestServiceMatch = { item: null as NormalizedService | null, score: 0, matchedKeywords: [] as string[] };
+    let bestMaterialMatch = { item: null as NormalizedMaterial | null, score: 0, matchedKeywords: [] as string[] };
+    
+    if (positionType === 'arbeitszeit' || positionType === 'pauschale') {
+      bestServiceMatch = findBestMatch(cleanedText, services, synonyms);
+    } else if (positionType === 'material' || positionType === 'ersatzteil') {
+      bestMaterialMatch = findBestMatch(cleanedText, materials, synonyms);
+    } else {
+      bestServiceMatch = findBestMatch(cleanedText, services, synonyms);
+      bestMaterialMatch = findBestMatch(cleanedText, materials, synonyms);
     }
     
-    return {
-      cleaned_text: cleanedText,
-      position_type: learned.position_type as NormalizationResult['position_type'],
-      normalized_service_id: learned.normalized_service_id,
-      normalized_service_name: serviceName,
-      normalized_material_id: learned.normalized_material_id,
-      normalized_material_name: materialName,
-      confidence_score: learned.confidence_score,
-      normalization_status: 'normalized',
-      matching_keywords: [],
-      kfz_part_type: kfzPartType,
-      labor_units_aw: laborUnitsAw,
-      vehicle_class: vehicleClass,
-      validation_warnings: validationWarnings,
-      is_special_service: isSpecial
-    };
+    const useService = bestServiceMatch.score >= bestMaterialMatch.score;
+    const bestScore = useService ? bestServiceMatch.score : bestMaterialMatch.score;
+    
+    if (bestScore >= CONFIDENCE_THRESHOLD) {
+      if (useService && bestServiceMatch.item) {
+        normalizedServiceId = bestServiceMatch.item.id;
+        normalizedServiceName = bestServiceMatch.item.name;
+        matchedKeywords = bestServiceMatch.matchedKeywords;
+      } else if (bestMaterialMatch.item) {
+        normalizedMaterialId = bestMaterialMatch.item.id;
+        normalizedMaterialName = bestMaterialMatch.item.name;
+        matchedKeywords = bestMaterialMatch.matchedKeywords;
+      }
+      confidenceScore = bestScore;
+      matchMethod = 'keyword';
+      console.log(`[normalize-position] ✓ KEYWORD match: ${normalizedServiceName || normalizedMaterialName} (score: ${bestScore})`);
+    } else {
+      // No match found
+      confidenceScore = bestScore;
+      console.log(`[normalize-position] ✗ No match found (best score: ${bestScore})`);
+    }
   }
   
-  // Step 3 & 4: Find best matches
-  let bestServiceMatch = { item: null as NormalizedService | null, score: 0, matchedKeywords: [] as string[] };
-  let bestMaterialMatch = { item: null as NormalizedMaterial | null, score: 0, matchedKeywords: [] as string[] };
-  
-  // Match based on position type
-  if (positionType === 'arbeitszeit' || positionType === 'pauschale') {
-    bestServiceMatch = findBestMatch(cleanedText, services, synonyms);
-  } else if (positionType === 'material' || positionType === 'ersatzteil') {
-    bestMaterialMatch = findBestMatch(cleanedText, materials, synonyms);
-  } else {
-    // For 'sonstig', try both
-    bestServiceMatch = findBestMatch(cleanedText, services, synonyms);
-    bestMaterialMatch = findBestMatch(cleanedText, materials, synonyms);
-  }
-  
-  // Determine best overall match
-  const useService = bestServiceMatch.score >= bestMaterialMatch.score;
-  const bestScore = useService ? bestServiceMatch.score : bestMaterialMatch.score;
-  const matchedKeywords = useService ? bestServiceMatch.matchedKeywords : bestMaterialMatch.matchedKeywords;
-  
-  console.log(`Best service match: ${bestServiceMatch.item?.name || 'none'} (${bestServiceMatch.score}%)`);
-  console.log(`Best material match: ${bestMaterialMatch.item?.name || 'none'} (${bestMaterialMatch.score}%)`);
-  
-  // Apply threshold
-  const normalized = bestScore >= CONFIDENCE_THRESHOLD;
+  const normalized = confidenceScore >= CONFIDENCE_THRESHOLD;
   
   const result: NormalizationResult = {
     cleaned_text: cleanedText,
     position_type: positionType,
-    normalized_service_id: normalized && useService ? bestServiceMatch.item?.id || null : null,
-    normalized_service_name: normalized && useService ? bestServiceMatch.item?.name || null : null,
-    normalized_material_id: normalized && !useService ? bestMaterialMatch.item?.id || null : null,
-    normalized_material_name: normalized && !useService ? bestMaterialMatch.item?.name || null : null,
-    confidence_score: bestScore,
+    normalized_service_id: normalizedServiceId,
+    normalized_service_name: normalizedServiceName,
+    normalized_material_id: normalizedMaterialId,
+    normalized_material_name: normalizedMaterialName,
+    confidence_score: confidenceScore,
     normalization_status: normalized ? 'normalized' : 'unmatched',
     matching_keywords: matchedKeywords,
+    match_method: matchMethod,
+    embedding_similarity: embeddingSimilarity,
     kfz_part_type: kfzPartType,
     labor_units_aw: laborUnitsAw,
     vehicle_class: vehicleClass,
@@ -677,12 +792,13 @@ async function normalizePosition(
     result.confidence_score
   );
   
+  console.log(`[normalize-position] Result: ${result.normalization_status} via ${result.match_method} (${result.confidence_score}%)`);
+  
   return result;
 }
 
 // Main handler
 Deno.serve(async (req) => {
-  // Handle CORS
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }

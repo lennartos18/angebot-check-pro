@@ -32,7 +32,7 @@ const faqs = [
 
 export function FAQSection() {
   return (
-    <section className="py-24 bg-[hsl(var(--section-alt))] relative">
+    <section className="py-24 bg-background relative">
       <div className="container mx-auto px-4 max-w-3xl">
         <motion.div
           initial={{ opacity: 0, y: 20 }}

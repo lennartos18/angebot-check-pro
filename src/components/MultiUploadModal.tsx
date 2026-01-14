@@ -1,26 +1,14 @@
-import React, { useState, useCallback, useRef } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Progress } from "@/components/ui/progress";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import {
-  Upload,
-  X,
-  FileText,
-  Image,
-  FileSpreadsheet,
-  Loader2,
-  CheckCircle,
-  AlertCircle,
-  Clock,
-  Wrench,
-  Car,
-} from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-import { useGuestSession, GuestDocument } from "@/hooks/useGuestSession";
-import { supabase } from "@/integrations/supabase/client";
+import React, { useState, useCallback, useRef } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { Upload, X, FileText, Image, FileSpreadsheet, Loader2, CheckCircle, AlertCircle, Wrench, Car, MapPin, Info } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { useGuestSession, GuestDocument } from '@/hooks/useGuestSession';
+import { supabase } from '@/integrations/supabase/client';
 
 interface MultiUploadModalProps {
   open: boolean;
@@ -32,28 +20,28 @@ interface FileWithProgress {
   id: string;
   file: File;
   progress: number;
-  status: "pending" | "uploading" | "processing" | "complete" | "error";
+  status: 'pending' | 'uploading' | 'processing' | 'complete' | 'error';
   error?: string;
 }
 
-type DocumentCategory = "handwerk" | "kfz";
+type DocumentCategory = 'handwerk' | 'kfz';
 
 const MAX_FILES = 3;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = [
-  "application/pdf",
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "text/csv",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'text/csv',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 ];
 
 const getFileIcon = (type: string) => {
-  if (type.includes("pdf")) return FileText;
-  if (type.includes("image")) return Image;
-  if (type.includes("csv") || type.includes("excel") || type.includes("spreadsheet")) return FileSpreadsheet;
+  if (type.includes('pdf')) return FileText;
+  if (type.includes('image')) return Image;
+  if (type.includes('csv') || type.includes('excel') || type.includes('spreadsheet')) return FileSpreadsheet;
   return FileText;
 };
 
@@ -66,26 +54,24 @@ const formatFileSize = (bytes: number): string => {
 export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUploadModalProps) {
   const [files, setFiles] = useState<FileWithProgress[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [plz, setPlz] = useState("");
-  const [stadt, setStadt] = useState("");
+  const [plz, setPlz] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [overallProgress, setOverallProgress] = useState(0);
-  const [currentStep, setCurrentStep] = useState<string>("");
-  const [category, setCategory] = useState<DocumentCategory>("handwerk");
-
+  const [currentStep, setCurrentStep] = useState<string>('');
+  const [category, setCategory] = useState<DocumentCategory>('handwerk');
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const { session, addDocument, updateLocation, updateAnalysis } = useGuestSession();
 
   const resetState = useCallback(() => {
     setFiles([]);
-    setPlz("");
-    setStadt("");
+    setPlz('');
     setIsAnalyzing(false);
     setOverallProgress(0);
-    setCurrentStep("");
+    setCurrentStep('');
     setIsDragOver(false);
-    setCategory("handwerk");
+    setCategory('handwerk');
   }, []);
 
   const handleClose = useCallback(() => {
@@ -104,68 +90,65 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
     return null;
   }, []);
 
-  const addFiles = useCallback(
-    (newFiles: File[]) => {
-      const currentCount = files.length;
-      const availableSlots = MAX_FILES - currentCount;
+  const addFiles = useCallback((newFiles: File[]) => {
+    const currentCount = files.length;
+    const availableSlots = MAX_FILES - currentCount;
 
-      if (availableSlots <= 0) {
-        toast({
-          title: "Maximum erreicht",
-          description: `Sie können maximal ${MAX_FILES} Dokumente hochladen.`,
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const filesToAdd = newFiles.slice(0, availableSlots);
-      const errors: string[] = [];
-      const validFiles: FileWithProgress[] = [];
-
-      filesToAdd.forEach((file) => {
-        const error = validateFile(file);
-        if (error) {
-          errors.push(error);
-        } else {
-          // Check for duplicates
-          const isDuplicate = files.some((f) => f.file.name === file.name && f.file.size === file.size);
-          if (isDuplicate) {
-            errors.push(`${file.name}: Datei bereits hinzugefügt.`);
-          } else {
-            validFiles.push({
-              id: crypto.randomUUID(),
-              file,
-              progress: 0,
-              status: "pending",
-            });
-          }
-        }
+    if (availableSlots <= 0) {
+      toast({
+        title: "Maximum erreicht",
+        description: `Sie können maximal ${MAX_FILES} Dokumente hochladen.`,
+        variant: "destructive"
       });
+      return;
+    }
 
-      if (errors.length > 0) {
-        toast({
-          title: "Einige Dateien wurden nicht hinzugefügt",
-          description: errors.join("\n"),
-          variant: "destructive",
-        });
-      }
+    const filesToAdd = newFiles.slice(0, availableSlots);
+    const errors: string[] = [];
+    const validFiles: FileWithProgress[] = [];
 
-      if (validFiles.length > 0) {
-        setFiles((prev) => [...prev, ...validFiles]);
+    filesToAdd.forEach(file => {
+      const error = validateFile(file);
+      if (error) {
+        errors.push(error);
+      } else {
+        // Check for duplicates
+        const isDuplicate = files.some(f => f.file.name === file.name && f.file.size === file.size);
+        if (isDuplicate) {
+          errors.push(`${file.name}: Datei bereits hinzugefügt.`);
+        } else {
+          validFiles.push({
+            id: crypto.randomUUID(),
+            file,
+            progress: 0,
+            status: 'pending'
+          });
+        }
       }
+    });
 
-      if (newFiles.length > availableSlots) {
-        toast({
-          title: "Hinweis",
-          description: `Nur ${availableSlots} von ${newFiles.length} Dateien wurden hinzugefügt (Maximum: ${MAX_FILES}).`,
-        });
-      }
-    },
-    [files, validateFile, toast],
-  );
+    if (errors.length > 0) {
+      toast({
+        title: "Einige Dateien wurden nicht hinzugefügt",
+        description: errors.join('\n'),
+        variant: "destructive"
+      });
+    }
+
+    if (validFiles.length > 0) {
+      setFiles(prev => [...prev, ...validFiles]);
+    }
+
+    if (newFiles.length > availableSlots) {
+      toast({
+        title: "Hinweis",
+        description: `Nur ${availableSlots} von ${newFiles.length} Dateien wurden hinzugefügt (Maximum: ${MAX_FILES}).`,
+      });
+    }
+  }, [files, validateFile, toast]);
 
   const removeFile = useCallback((id: string) => {
-    setFiles((prev) => prev.filter((f) => f.id !== id));
+    setFiles(prev => prev.filter(f => f.id !== id));
   }, []);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -178,37 +161,31 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
     setIsDragOver(false);
   }, []);
 
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setIsDragOver(false);
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    addFiles(droppedFiles);
+  }, [addFiles]);
 
-      const droppedFiles = Array.from(e.dataTransfer.files);
-      addFiles(droppedFiles);
-    },
-    [addFiles],
-  );
-
-  const handleFileSelect = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (e.target.files) {
-        const selectedFiles = Array.from(e.target.files);
-        addFiles(selectedFiles);
-      }
-      // Reset input
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    },
-    [addFiles],
-  );
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const selectedFiles = Array.from(e.target.files);
+      addFiles(selectedFiles);
+    }
+    // Reset input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }, [addFiles]);
 
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
       reader.onload = () => resolve(reader.result as string);
-      reader.onerror = (error) => reject(error);
+      reader.onerror = error => reject(error);
     });
   };
 
@@ -217,18 +194,18 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
       toast({
         title: "Keine Dokumente",
         description: "Bitte laden Sie mindestens ein Dokument hoch.",
-        variant: "destructive",
+        variant: "destructive"
       });
       return;
     }
 
     setIsAnalyzing(true);
     setOverallProgress(0);
-
+    
     try {
       // Update location in session
-      if (plz || stadt) {
-        await updateLocation(plz, stadt);
+      if (plz) {
+        await updateLocation(plz, '');
       }
 
       const results: any[] = [];
@@ -238,35 +215,34 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
       for (let i = 0; i < files.length; i++) {
         const fileWithProgress = files[i];
         const file = fileWithProgress.file;
-
+        
         // Update file status
-        setFiles((prev) =>
-          prev.map((f) => (f.id === fileWithProgress.id ? { ...f, status: "uploading" as const, progress: 10 } : f)),
-        );
+        setFiles(prev => prev.map(f => 
+          f.id === fileWithProgress.id ? { ...f, status: 'uploading' as const, progress: 10 } : f
+        ));
         setCurrentStep(`Dokument ${i + 1}/${files.length}: Wird konvertiert...`);
 
         // Convert to base64
         const base64 = await fileToBase64(file);
         completedSteps++;
         setOverallProgress((completedSteps / totalSteps) * 100);
-
-        setFiles((prev) =>
-          prev.map((f) => (f.id === fileWithProgress.id ? { ...f, status: "processing" as const, progress: 40 } : f)),
-        );
+        
+        setFiles(prev => prev.map(f => 
+          f.id === fileWithProgress.id ? { ...f, status: 'processing' as const, progress: 40 } : f
+        ));
         setCurrentStep(`Dokument ${i + 1}/${files.length}: Wird analysiert...`);
 
         // Call analyze function
-        const { data, error } = await supabase.functions.invoke("analyze-angebot", {
+        const { data, error } = await supabase.functions.invoke('analyze-angebot', {
           body: {
             fileBase64: base64,
             fileType: file.type,
             plz: plz || undefined,
-            stadt: stadt || undefined,
             guestMode: true,
             documentIndex: i,
             totalDocuments: files.length,
-            category: category, // Pass category to backend
-          },
+            category: category
+          }
         });
 
         completedSteps += 2;
@@ -274,22 +250,20 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
 
         if (error) {
           console.error(`Error analyzing document ${i + 1}:`, error);
-          setFiles((prev) =>
-            prev.map((f) =>
-              f.id === fileWithProgress.id ? { ...f, status: "error" as const, error: error.message } : f,
-            ),
-          );
+          setFiles(prev => prev.map(f => 
+            f.id === fileWithProgress.id ? { ...f, status: 'error' as const, error: error.message } : f
+          ));
           results.push({
             documentIndex: i,
             fileName: file.name,
             error: error.message,
-            status: "error",
+            status: 'error'
           });
         } else {
-          setFiles((prev) =>
-            prev.map((f) => (f.id === fileWithProgress.id ? { ...f, status: "complete" as const, progress: 100 } : f)),
-          );
-
+          setFiles(prev => prev.map(f => 
+            f.id === fileWithProgress.id ? { ...f, status: 'complete' as const, progress: 100 } : f
+          ));
+          
           // Add document to session
           const guestDoc: GuestDocument = {
             id: fileWithProgress.id,
@@ -297,14 +271,14 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
             fileType: file.type,
             fileSize: file.size,
             uploadedAt: new Date().toISOString(),
-            status: "analyzed",
-            analysisResult: data,
+            status: 'analyzed',
+            analysisResult: data
           };
           await addDocument(guestDoc);
 
           // Extract analysis data from nested structure
           const analysisData = data?.analysis || data;
-
+          
           results.push({
             documentIndex: i,
             fileName: file.name,
@@ -314,105 +288,87 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
             service_domain: analysisData?.service_domain,
             handwerker_name: analysisData?.handwerker_firma || analysisData?.handwerker_name,
             analysis_summary: analysisData?.analysis_summary,
-            status: "success",
+            status: 'success'
           });
         }
       }
 
-      setCurrentStep("Analyse abgeschlossen!");
-
+      setCurrentStep('Analyse abgeschlossen!');
+      
       // Save combined analysis
       const combinedAnalysis = {
         documents: results,
         analyzedAt: new Date().toISOString(),
         plz,
-        stadt,
-        documentCount: files.length,
+        documentCount: files.length
       };
       await updateAnalysis(combinedAnalysis);
 
       // Save anonymized data to database for future comparisons
-      // Important: This builds the price comparison database!
-      const successfulResults = results.filter((r) => r.status === "success");
-
+      const successfulResults = results.filter(r => r.status === 'success');
+      
       if (successfulResults.length > 0) {
-        setCurrentStep("Daten werden zur Datenbank hinzugefügt...");
-
+        setCurrentStep('Daten werden zur Datenbank hinzugefügt...');
+        
         // Prepare documents for saving
-        const documentsToSave = successfulResults.map((r) => ({
+        const documentsToSave = successfulResults.map(r => ({
           title: r.fileName,
           gesamtpreis: r.gesamtpreis,
           plausibility_score: r.plausibility_score,
           service_domain: r.service_domain || category,
-          document_type: "angebot",
-          positionen: r.positionen || [],
+          document_type: 'angebot',
+          positionen: r.positionen || []
         }));
-
-        console.log("[MultiUploadModal] Saving analysis data to database...");
-        console.log("[MultiUploadModal] Session ID:", session?.id);
-        console.log("[MultiUploadModal] Documents to save:", documentsToSave.length);
-        console.log(
-          "[MultiUploadModal] Total positions:",
-          documentsToSave.reduce((sum, d) => sum + (d.positionen?.length || 0), 0),
-        );
-        console.log("[MultiUploadModal] PLZ:", plz, "Stadt:", stadt);
-
+        
+        console.log('[MultiUploadModal] Saving analysis data to database...');
+        console.log('[MultiUploadModal] Session ID:', session?.id);
+        console.log('[MultiUploadModal] Documents to save:', documentsToSave.length);
+        
         try {
-          // Ensure we have a valid session ID
           const sessionId = session?.id;
-
+          
           if (!sessionId) {
-            console.warn("[MultiUploadModal] No session ID available, skipping database save");
+            console.warn('[MultiUploadModal] No session ID available, skipping database save');
           } else {
             const savePayload = {
               session_id: sessionId,
               analysis_data: {
                 documents: documentsToSave,
-                plz: plz || undefined,
-                stadt: stadt || undefined,
-              },
+                plz: plz || undefined
+              }
             };
-
-            console.log(
-              "[MultiUploadModal] Calling save-guest-analysis with payload:",
-              JSON.stringify(savePayload, null, 2),
-            );
-
-            const { data: saveResult, error: saveError } = await supabase.functions.invoke("save-guest-analysis", {
-              body: savePayload,
+            
+            console.log('[MultiUploadModal] Calling save-guest-analysis with payload:', JSON.stringify(savePayload, null, 2));
+            
+            const { data: saveResult, error: saveError } = await supabase.functions.invoke('save-guest-analysis', {
+              body: savePayload
             });
-
+            
             if (saveError) {
-              console.error("[MultiUploadModal] Error saving to database:", saveError);
-              console.error("[MultiUploadModal] Error details:", JSON.stringify(saveError));
+              console.error('[MultiUploadModal] Error saving to database:', saveError);
             } else {
-              console.log("[MultiUploadModal] ✓ Database save successful:", saveResult);
-              console.log(
-                `[MultiUploadModal] Saved ${saveResult?.saved_documents || 0} documents and ${saveResult?.saved_positions || 0} positions`,
-              );
+              console.log('[MultiUploadModal] ✓ Database save successful:', saveResult);
             }
           }
         } catch (saveError) {
-          console.error("[MultiUploadModal] Exception during database save:", saveError);
-          // Don't fail the whole process if saving fails - the user still gets their analysis
+          console.error('[MultiUploadModal] Exception during database save:', saveError);
         }
-      } else {
-        console.log("[MultiUploadModal] No successful results to save to database");
       }
 
       toast({
         title: "Analyse abgeschlossen",
-        description: `${results.filter((r) => r.status === "success").length} von ${files.length} Dokumenten erfolgreich analysiert.`,
+        description: `${results.filter(r => r.status === 'success').length} von ${files.length} Dokumenten erfolgreich analysiert.`,
       });
 
       onAnalysisComplete(combinedAnalysis);
       handleClose();
+
     } catch (error) {
-      console.error("Analysis error:", error);
+      console.error('Analysis error:', error);
       toast({
         title: "Analysefehler",
         description: error instanceof Error ? error.message : "Ein unerwarteter Fehler ist aufgetreten.",
-        variant: "destructive",
+        variant: "destructive"
       });
     } finally {
       setIsAnalyzing(false);
@@ -423,58 +379,15 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-xl">
-            <Upload className="w-5 h-5 text-primary" />
-            Dokumente hochladen
+          <DialogTitle className="text-xl font-semibold">
+            Dokument analysieren
           </DialogTitle>
-          <DialogDescription>
-            Laden Sie bis zu 3 Angebote, Kostenvoranschläge oder Rechnungen hoch. Die Analyse ist kostenlos und anonym.
-          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6 py-4">
-          {/* Category Switch */}
-          <div className="bg-muted/50 rounded-xl p-4 space-y-3">
-            <Label className="text-sm font-medium text-foreground">Um welche Art von Dokumenten handelt es sich?</Label>
-            <div className="flex items-center gap-4">
-              <div
-                className={`flex items-center gap-2 transition-colors ${category === "handwerk" ? "text-primary font-semibold" : "text-muted-foreground"}`}
-              >
-                <Wrench className="w-5 h-5" />
-                <span>Handwerk</span>
-              </div>
-
-              <Switch
-                checked={category === "kfz"}
-                onCheckedChange={(checked) => setCategory(checked ? "kfz" : "handwerk")}
-                className="data-[state=checked]:bg-primary"
-              />
-
-              <div
-                className={`flex items-center gap-2 transition-colors ${category === "kfz" ? "text-primary font-semibold" : "text-muted-foreground"}`}
-              >
-                <Car className="w-5 h-5" />
-                <span>KFZ-Werkstatt</span>
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {category === "handwerk"
-                ? "Für Angebote von Dachdeckern, Elektrikern, Sanitär, Malern, etc."
-                : "Für Rechnungen und Kostenvoranschläge von KFZ-Werkstätten"}
-            </p>
-          </div>
-
-          {/* Session Timer */}
-          {session && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
-              <Clock className="w-4 h-4" />
-              <span>Session gültig für 24 Stunden</span>
-            </div>
-          )}
-
-          {/* Drop Zone */}
+          {/* Drop Zone - Always at top */}
           {files.length < MAX_FILES && !isAnalyzing && (
             <div
               onDragOver={handleDragOver}
@@ -484,10 +397,9 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
               className={`
                 border-2 border-dashed rounded-xl p-8 text-center cursor-pointer
                 transition-all duration-200
-                ${
-                  isDragOver
-                    ? "border-primary bg-primary/5 scale-[1.02]"
-                    : "border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50"
+                ${isDragOver 
+                  ? 'border-primary bg-primary/5 scale-[1.02]' 
+                  : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50'
                 }
               `}
             >
@@ -499,142 +411,181 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
                 onChange={handleFileSelect}
                 className="hidden"
               />
-              <Upload className={`w-12 h-12 mx-auto mb-4 ${isDragOver ? "text-primary" : "text-muted-foreground"}`} />
-              <p className="text-lg font-medium mb-1">
-                {isDragOver ? "Dateien hier ablegen" : "Dateien hierher ziehen"}
-              </p>
-              <p className="text-sm text-muted-foreground mb-3">oder klicken zum Auswählen</p>
-              <div className="flex flex-wrap justify-center gap-2 text-xs text-muted-foreground">
-                <span className="bg-muted px-2 py-1 rounded">PDF</span>
-                <span className="bg-muted px-2 py-1 rounded">JPG/PNG</span>
-                <span className="bg-muted px-2 py-1 rounded">Excel/CSV</span>
-                <span className="bg-muted px-2 py-1 rounded">Max. 10 MB</span>
+              <div className={`mx-auto w-12 h-12 rounded-full flex items-center justify-center transition-colors mb-4 ${isDragOver ? 'bg-primary/20' : 'bg-muted'}`}>
+                <Upload className={`w-6 h-6 ${isDragOver ? 'text-primary' : 'text-muted-foreground'}`} />
               </div>
+              <p className="font-medium text-foreground">
+                Datei hierher ziehen
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">
+                oder klicken zum Auswählen
+              </p>
+              <p className="text-xs text-muted-foreground mt-3">
+                PDF, JPG, PNG, Excel • Max. 10 MB
+              </p>
+              <p className="text-xs text-muted-foreground/70 mt-1">
+                Mehrseitige Dokumente werden vollständig analysiert
+              </p>
             </div>
           )}
 
           {/* File List */}
           {files.length > 0 && (
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="font-medium">
-                  Hochgeladene Dokumente ({files.length}/{MAX_FILES})
-                </h4>
-                {files.length < MAX_FILES && !isAnalyzing && (
-                  <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-                    <Upload className="w-4 h-4 mr-2" />
-                    Weitere hinzufügen
-                  </Button>
-                )}
-              </div>
-
-              {files.map((fileItem) => {
-                const Icon = getFileIcon(fileItem.file.type);
-                return (
-                  <div
-                    key={fileItem.id}
-                    className={`
-                      flex items-center gap-3 p-3 rounded-lg border
-                      ${fileItem.status === "error" ? "bg-destructive/5 border-destructive/30" : "bg-muted/50"}
-                    `}
-                  >
+              <Label className="text-sm font-medium">
+                Hochgeladene Dokumente ({files.length}/{MAX_FILES})
+              </Label>
+              <div className="space-y-2">
+                {files.map(fileWithProgress => {
+                  const FileIcon = getFileIcon(fileWithProgress.file.type);
+                  return (
                     <div
-                      className={`
-                      w-10 h-10 rounded-lg flex items-center justify-center
-                      ${
-                        fileItem.status === "complete"
-                          ? "bg-green-100 text-green-600"
-                          : fileItem.status === "error"
-                            ? "bg-red-100 text-red-600"
-                            : fileItem.status === "processing" || fileItem.status === "uploading"
-                              ? "bg-primary/10 text-primary"
-                              : "bg-muted text-muted-foreground"
-                      }
-                    `}
+                      key={fileWithProgress.id}
+                      className="flex items-center gap-3 p-3 rounded-lg border bg-card"
                     >
-                      {fileItem.status === "processing" || fileItem.status === "uploading" ? (
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                      ) : fileItem.status === "complete" ? (
-                        <CheckCircle className="w-5 h-5" />
-                      ) : fileItem.status === "error" ? (
-                        <AlertCircle className="w-5 h-5" />
-                      ) : (
-                        <Icon className="w-5 h-5" />
-                      )}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate">{fileItem.file.name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {formatFileSize(fileItem.file.size)}
-                        {fileItem.status === "error" && fileItem.error && (
-                          <span className="text-destructive ml-2">• {fileItem.error}</span>
+                      <div className={`p-2 rounded-lg ${
+                        fileWithProgress.status === 'complete' ? 'bg-green-100 dark:bg-green-900/30' :
+                        fileWithProgress.status === 'error' ? 'bg-red-100 dark:bg-red-900/30' :
+                        fileWithProgress.status === 'processing' || fileWithProgress.status === 'uploading' ? 'bg-blue-100 dark:bg-blue-900/30' :
+                        'bg-muted'
+                      }`}>
+                        {fileWithProgress.status === 'processing' || fileWithProgress.status === 'uploading' ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                        ) : fileWithProgress.status === 'complete' ? (
+                          <CheckCircle className="w-4 h-4 text-green-600" />
+                        ) : fileWithProgress.status === 'error' ? (
+                          <AlertCircle className="w-4 h-4 text-red-600" />
+                        ) : (
+                          <FileIcon className="w-4 h-4 text-muted-foreground" />
                         )}
-                      </p>
-                      {(fileItem.status === "processing" || fileItem.status === "uploading") && (
-                        <Progress value={fileItem.progress} className="h-1 mt-2" />
-                      )}
-                    </div>
-
-                    {!isAnalyzing && fileItem.status !== "complete" && (
-                      <Button variant="ghost" size="icon" onClick={() => removeFile(fileItem.id)} className="shrink-0">
+                      </div>
+                      
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{fileWithProgress.file.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatFileSize(fileWithProgress.file.size)}
+                          {fileWithProgress.error && (
+                            <span className="text-red-500 ml-2">{fileWithProgress.error}</span>
+                          )}
+                        </p>
+                        {(fileWithProgress.status === 'uploading' || fileWithProgress.status === 'processing') && (
+                          <Progress value={fileWithProgress.progress} className="h-1 mt-1" />
+                        )}
+                      </div>
+                      
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 shrink-0"
+                        onClick={() => removeFile(fileWithProgress.id)}
+                        disabled={isAnalyzing}
+                      >
                         <X className="w-4 h-4" />
                       </Button>
-                    )}
-                  </div>
-                );
-              })}
+                    </div>
+                  );
+                })}
+              </div>
+              
+              {files.length < MAX_FILES && !isAnalyzing && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  + Weitere hinzufügen
+                </Button>
+              )}
             </div>
           )}
 
-          {/* Location Input */}
+          {/* PLZ Input - Only show after files uploaded */}
           {files.length > 0 && !isAnalyzing && (
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">PLZ (optional)</label>
-                <Input
-                  value={plz}
-                  onChange={(e) => setPlz(e.target.value.replace(/\D/g, "").slice(0, 5))}
-                  placeholder="z.B. 50667"
-                  maxLength={5}
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Stadt (optional)</label>
-                <Input value={stadt} onChange={(e) => setStadt(e.target.value)} placeholder="z.B. Köln" />
-              </div>
-              <p className="col-span-2 text-xs text-muted-foreground">
-                Die Ortsangabe ermöglicht eine genauere regionale Einordnung der Preise.
+            <div className="space-y-2">
+              <Label htmlFor="plz" className="text-sm font-medium flex items-center gap-2">
+                <MapPin className="w-4 h-4" />
+                PLZ des Handwerkers / der Werkstatt
+                <span className="text-muted-foreground font-normal">(optional)</span>
+              </Label>
+              <Input
+                id="plz"
+                placeholder="z.B. 50667"
+                value={plz}
+                onChange={(e) => setPlz(e.target.value.replace(/\D/g, '').slice(0, 5))}
+                className="max-w-[200px]"
+                maxLength={5}
+              />
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <Info className="w-3 h-3" />
+                Die PLZ ermöglicht präzisere regionale Preisvergleiche
               </p>
             </div>
           )}
 
-          {/* Analysis Progress */}
-          {isAnalyzing && (
-            <div className="space-y-4 py-4">
-              <div className="flex items-center justify-center gap-3">
-                <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                <span className="text-lg font-medium">{currentStep}</span>
+          {/* Category Switch - Only show after files uploaded */}
+          {files.length > 0 && !isAnalyzing && (
+            <div className="space-y-3">
+              <Label className="text-sm font-medium">
+                Um welche Art von Dokumenten handelt es sich?
+              </Label>
+              <div className="flex items-center justify-center gap-4 p-4 rounded-lg bg-muted/50">
+                <div className={`flex items-center gap-2 transition-opacity ${category === 'handwerk' ? 'opacity-100' : 'opacity-50'}`}>
+                  <Wrench className="w-5 h-5 text-amber-600" />
+                  <span className="font-medium">Handwerk</span>
+                </div>
+                <Switch
+                  checked={category === 'kfz'}
+                  onCheckedChange={(checked) => setCategory(checked ? 'kfz' : 'handwerk')}
+                  className="data-[state=checked]:bg-blue-600"
+                />
+                <div className={`flex items-center gap-2 transition-opacity ${category === 'kfz' ? 'opacity-100' : 'opacity-50'}`}>
+                  <Car className="w-5 h-5 text-blue-600" />
+                  <span className="font-medium">KFZ-Werkstatt</span>
+                </div>
               </div>
-              <Progress value={overallProgress} className="h-2" />
-              <p className="text-center text-sm text-muted-foreground">{Math.round(overallProgress)}% abgeschlossen</p>
+              <p className="text-xs text-muted-foreground text-center">
+                {category === 'kfz' 
+                  ? 'Für KFZ-Werkstatt-Rechnungen und Kostenvoranschläge'
+                  : 'Für Handwerker-Angebote aller Gewerke (Sanitär, Elektro, Maler, etc.)'
+                }
+              </p>
             </div>
           )}
 
-          {/* Action Button */}
-          {!isAnalyzing && (
-            <Button onClick={analyzeDocuments} disabled={!canStartAnalysis} className="w-full h-12 text-lg" size="lg">
-              {files.length === 0 ? (
-                "Bitte Dokumente hochladen"
-              ) : (
-                <>
-                  <Upload className="w-5 h-5 mr-2" />
-                  {files.length === 1 ? "Angebot analysieren" : `${files.length} Angebot analysieren`}
-                  <span className="ml-2 text-primary-foreground/70">• Kostenlos</span>
-                </>
-              )}
-            </Button>
+          {/* Progress during analysis */}
+          {isAnalyzing && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">{currentStep}</span>
+                <span className="font-medium">{Math.round(overallProgress)}%</span>
+              </div>
+              <Progress value={overallProgress} className="h-2" />
+            </div>
           )}
+
+          {/* Analyze Button */}
+          <Button
+            onClick={analyzeDocuments}
+            disabled={!canStartAnalysis}
+            className="w-full py-6 text-lg"
+            size="lg"
+          >
+            {isAnalyzing ? (
+              <>
+                <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                Analysiere...
+              </>
+            ) : (
+              <>
+                <FileText className="w-5 h-5 mr-2" />
+                {files.length === 0 
+                  ? 'Bitte Dokument hochladen'
+                  : `${files.length} Dokument${files.length !== 1 ? 'e' : ''} analysieren • Kostenlos`
+                }
+              </>
+            )}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

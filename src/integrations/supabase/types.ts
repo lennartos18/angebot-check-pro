@@ -91,6 +91,39 @@ export type Database = {
           },
         ]
       }
+      document_analysis_cache: {
+        Row: {
+          access_count: number
+          analysis_result: Json
+          created_at: string
+          document_hash: string
+          file_size_bytes: number | null
+          file_type: string | null
+          id: string
+          last_accessed_at: string
+        }
+        Insert: {
+          access_count?: number
+          analysis_result: Json
+          created_at?: string
+          document_hash: string
+          file_size_bytes?: number | null
+          file_type?: string | null
+          id?: string
+          last_accessed_at?: string
+        }
+        Update: {
+          access_count?: number
+          analysis_result?: Json
+          created_at?: string
+          document_hash?: string
+          file_size_bytes?: number | null
+          file_type?: string | null
+          id?: string
+          last_accessed_at?: string
+        }
+        Relationships: []
+      }
       document_positions: {
         Row: {
           comparison_eligible: boolean | null

@@ -81,13 +81,17 @@ export function HeroSection({ onUploadClick }: HeroSectionProps) {
             transition={{ delay: 0.5 }}
             className="flex flex-col sm:flex-row justify-center gap-4 mb-8"
           >
-            <Button
-              size="lg"
-              onClick={onUploadClick}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white text-lg px-8 py-6 rounded-xl shadow-lg hover:shadow-xl transition-all"
-            >
-              Angebote hochladen
-            </Button>
+            <div className="relative group">
+              {/* Pulsing glow effect */}
+              <div className="absolute -inset-1 bg-emerald-500/40 rounded-xl blur-lg opacity-70 group-hover:opacity-100 animate-pulse transition-opacity" />
+              <Button
+                size="lg"
+                onClick={onUploadClick}
+                className="relative bg-emerald-600 hover:bg-emerald-700 text-white text-lg px-8 py-6 rounded-xl shadow-lg hover:shadow-xl transition-all"
+              >
+                Angebote hochladen
+              </Button>
+            </div>
             <Button
               size="lg"
               variant="outline"

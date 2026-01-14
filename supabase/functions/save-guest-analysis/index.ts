@@ -147,28 +147,54 @@ function generateTimeBucket(date: Date): string {
 }
 
 // Determine position type based on content
-function determinePositionType(position: Position): string {
+function determinePositionType(position: Position): 'arbeitszeit' | 'material' | 'ersatzteil' | 'pauschale' | 'sonstig' {
   const desc = (position.beschreibung || '').toLowerCase();
   const material = (position.material || '').toLowerCase();
+  const unit = (position.einheit || '').toLowerCase();
+  
+  // Pauschale indicators
+  const pauschaleKeywords = ['pauschale', 'psch', 'pauschal', 'komplett', 'gesamt'];
+  
+  // Ersatzteil indicators (Kfz-spezifisch)
+  const ersatzteilKeywords = ['filter', 'öl', 'oel', 'beläge', 'belaege', 'scheiben', 'dämpfer', 'daempfer', 'teile', 'original', 'oem'];
   
   // Material indicators
   const materialKeywords = ['liefern', 'material', 'stück', 'stk', 'meter', 'kg', 'liter', 'packung', 'satz', 'set'];
-  // Labor indicators  
-  const laborKeywords = ['arbeit', 'stunde', 'std', 'montage', 'installation', 'demontage', 'reparatur', 'wartung', 'prüfung'];
   
+  // Labor indicators  
+  const laborKeywords = ['arbeit', 'stunde', 'std', 'montage', 'installation', 'demontage', 'reparatur', 'wartung', 'prüfung', 'wechseln', 'austauschen', 'erneuern'];
+  
+  // Check for pauschale first
+  for (const keyword of pauschaleKeywords) {
+    if (desc.includes(keyword) || unit.includes(keyword)) return 'pauschale';
+  }
+  
+  // Check for ersatzteil
   if (material && material.trim() !== '') {
+    for (const keyword of ersatzteilKeywords) {
+      if (material.includes(keyword)) return 'ersatzteil';
+    }
     return 'material';
   }
   
+  // Check for ersatzteil in description
+  for (const keyword of ersatzteilKeywords) {
+    if (desc.includes(keyword) && !desc.includes('wechsel') && !desc.includes('austausch')) {
+      return 'ersatzteil';
+    }
+  }
+  
+  // Check for material
   for (const keyword of materialKeywords) {
     if (desc.includes(keyword)) return 'material';
   }
   
+  // Check for arbeitszeit
   for (const keyword of laborKeywords) {
     if (desc.includes(keyword)) return 'arbeitszeit';
   }
   
-  return 'sonstige';
+  return 'sonstig';
 }
 
 // Map service domain to gewerk

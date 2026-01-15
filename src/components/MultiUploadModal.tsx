@@ -24,7 +24,7 @@ interface FileWithProgress {
   error?: string;
 }
 
-type DocumentCategory = 'handwerk' | 'kfz';
+// Kategorie ist immer 'handwerk' - KFZ wurde entfernt
 
 const MAX_FILES = 3;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -58,7 +58,7 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [overallProgress, setOverallProgress] = useState(0);
   const [currentStep, setCurrentStep] = useState<string>('');
-  const [category, setCategory] = useState<DocumentCategory>('handwerk');
+  const category = 'handwerk'; // Hardcoded - nur Handwerk wird unterstützt
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -71,7 +71,7 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
     setOverallProgress(0);
     setCurrentStep('');
     setIsDragOver(false);
-    setCategory('handwerk');
+    // category ist jetzt konstant 'handwerk'
   }, []);
 
   const handleClose = useCallback(() => {
@@ -523,33 +523,13 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
             </div>
           )}
 
-          {/* Category Switch - Only show after files uploaded */}
+          {/* Hinweis zur Dokumentart */}
           {files.length > 0 && !isAnalyzing && (
-            <div className="space-y-3">
-              <Label className="text-sm font-medium">
-                Um welche Art von Dokumenten handelt es sich?
-              </Label>
-              <div className="flex items-center justify-center gap-4 p-4 rounded-lg bg-muted/50">
-                <div className={`flex items-center gap-2 transition-opacity ${category === 'handwerk' ? 'opacity-100' : 'opacity-50'}`}>
-                  <Wrench className="w-5 h-5 text-amber-600" />
-                  <span className="font-medium">Handwerk</span>
-                </div>
-                <Switch
-                  checked={category === 'kfz'}
-                  onCheckedChange={(checked) => setCategory(checked ? 'kfz' : 'handwerk')}
-                  className="data-[state=checked]:bg-blue-600"
-                />
-                <div className={`flex items-center gap-2 transition-opacity ${category === 'kfz' ? 'opacity-100' : 'opacity-50'}`}>
-                  <Car className="w-5 h-5 text-blue-600" />
-                  <span className="font-medium">KFZ-Werkstatt</span>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground text-center">
-                {category === 'kfz' 
-                  ? 'Für KFZ-Werkstatt-Rechnungen und Kostenvoranschläge'
-                  : 'Für Handwerker-Angebote aller Gewerke (Sanitär, Elektro, Maler, etc.)'
-                }
-              </p>
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50">
+              <Wrench className="w-5 h-5 text-amber-600" />
+              <span className="text-sm text-muted-foreground">
+                Für Handwerker-Angebote aller Gewerke (Zimmerei, Sanitär, Elektro, Maler, etc.)
+              </span>
             </div>
           )}
 

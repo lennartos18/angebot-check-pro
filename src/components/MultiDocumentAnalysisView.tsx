@@ -361,13 +361,13 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
                                             {pos.marktpreis_durchschnitt && (
                                               <div className="text-xs text-muted-foreground space-y-0.5">
                                                 <p>
-                                                  Marktpreis: Ø {pos.marktpreis_durchschnitt.toLocaleString('de-DE')}€
-                                                  {pos.marktpreis_min != null && pos.marktpreis_max != null && (
-                                                    <span className="ml-1">
-                                                      ({pos.marktpreis_min.toLocaleString('de-DE')}–{pos.marktpreis_max.toLocaleString('de-DE')}€)
-                                                    </span>
-                                                  )}
+                                                  Regionaler Vergleichswert: {pos.marktpreis_durchschnitt.toLocaleString('de-DE')}€
                                                 </p>
+                                                {pos.marktpreis_min != null && pos.marktpreis_max != null && (
+                                                  <p className="text-muted-foreground/80">
+                                                    Spannbreite: {pos.marktpreis_min.toLocaleString('de-DE')}–{pos.marktpreis_max.toLocaleString('de-DE')}€
+                                                  </p>
+                                                )}
                                                 {pos.abweichung_prozent != null && (
                                                   <p>
                                                     Abweichung: {pos.abweichung_prozent > 0 ? '+' : ''}{pos.abweichung_prozent.toFixed(0)}%

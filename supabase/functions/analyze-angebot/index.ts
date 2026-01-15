@@ -281,18 +281,30 @@ BEISPIELE zur Verdeutlichung:
 3. DETAILLIERTE ANGEBOTE (mehrere Positionen mit je eigenem Preis): Extrahiere JEDE einzeln
 4. ZÄHLE NUR Positionen mit eigenem €-Betrag
 
-WICHTIGE REGELN:
-1. Verwende die internen Marktdaten wenn verfügbar
-2. Wenn keine internen Daten: Nutze dein Marktwissen für Deutschland 2025/2026
-3. IMMER konkrete Preisschätzungen angeben
-4. IMMER Datengrundlage nennen
-5. Gib IMMER einen kurzen, verständlichen Hinweis pro Position
+⚠️⚠️⚠️ SPRACHLICHE REGELN (CHARTA-KONFORM) ⚠️⚠️⚠️
+VERBOTEN - NIEMALS verwenden:
+- "Marktpreis für Deutschland" oder "durchschnittlicher Marktpreis"
+- "Branchendurchschnitt" oder "typisch für..."
+- Absolute Aussagen wie "der Preis ist...", "kostet normalerweise..."
+- Städtenamen oder PLZ in Hinweisen (nur "in der Region" oder "regional")
 
-HINWEIS-BEISPIELE:
-- "Im regionalen Rahmen für Hamburg, typisch für Sanitärarbeiten"
-- "Leicht über dem Marktdurchschnitt, aber vertretbar bei Qualitätsarbeit"
-- "Auffällig hoch - Nachverhandlung empfohlen"
-- "Auffällig günstig - Qualität und Leistungsumfang prüfen"
+PFLICHT - IMMER verwenden:
+- "Im regionalen Vergleich..." oder "Innerhalb der beobachteten Spannbreite..."
+- "...konnte eingeordnet werden als..." statt "...ist..."
+- "...basierend auf verfügbaren Vergleichsdaten..." bei jeder Bewertung
+- Unsicherheitshinweise bei eingeschränkter Datenbasis
+
+HINWEIS-FORMULIERUNGEN (verwende NUR diese Muster):
+- "Im regionalen Vergleich innerhalb der beobachteten Spannbreite vergleichbarer Positionen"
+- "Konnte als leicht über den verfügbaren Vergleichswerten eingeordnet werden – bei begrenzter regionaler Datenbasis"
+- "Auffällig über den Vergleichswerten – nähere Prüfung der Leistungsbeschreibung empfohlen"
+- "Deutlich unter den regionalen Vergleichswerten – Leistungsumfang und Qualität prüfen"
+- "Aufgrund eingeschränkter Vergleichsdaten nicht eindeutig einordenbar"
+
+DATENGRUNDLAGE-WERTE (nur diese verwenden):
+- "Regionale Vergleichsdaten" (wenn interne Daten vorhanden)
+- "Begrenzte regionale Datenbasis" (wenn wenige Vergleichspunkte)
+- "Allgemeine Markteinschätzung (indikativ)" (wenn nur KI-Schätzung)
 
 Antworte IMMER als valides JSON mit dieser Struktur:
 {
@@ -306,24 +318,24 @@ Antworte IMMER als valides JSON mit dieser Struktur:
   "service_domain": "handwerk",
   "gesamtpreis": Zahl,
   "plausibility_score": 0-100,
-  "analysis_summary": "Kurze Zusammenfassung der Bewertung (2-3 Sätze)",
+  "analysis_summary": "Zusammenfassung mit Hinweis auf Regionalität und Datenbasis (2-3 Sätze, defensiv formuliert)",
   "positionen": [
     {
       "position_nummer": 1,
-      "beschreibung": "Positionsbeschreibung (bei Pauschalangeboten: Hauptleistung + wichtige Ausstattungsmerkmale)",
+      "beschreibung": "Positionsbeschreibung",
       "material": "Material oder null",
       "menge": Zahl oder null,
       "einheit": "Stück/m²/Stunde/etc oder null",
       "einzelpreis": Zahl oder null,
       "gesamtpreis": Zahl,
       "einordnung_stufe": "im_regionalen_rahmen|leicht_ueber_vergleich|leicht_unter_vergleich|auffaellig_hoch|auffaellig_niedrig|nicht_einordenbar",
-      "einordnung_begruendung": "Kurze Begründung",
+      "einordnung_begruendung": "Defensive Begründung mit Hinweis auf Vergleichsbasis",
       "marktpreis_min": Zahl,
       "marktpreis_max": Zahl,
       "marktpreis_durchschnitt": Zahl,
       "abweichung_prozent": Zahl (positiv = teurer, negativ = günstiger),
-      "datengrundlage": "Interne Marktdaten" | "Branchendurchschnitt Deutschland" | "Allgemeine Markteinschätzung",
-      "hinweis": "Kurzer, verständlicher Hinweis für den Nutzer"
+      "datengrundlage": "Regionale Vergleichsdaten" | "Begrenzte regionale Datenbasis" | "Allgemeine Markteinschätzung (indikativ)",
+      "hinweis": "Charta-konformer Hinweis mit Regionalitäts- und Datenbasis-Hinweis"
     }
   ]
 }`;

@@ -79,7 +79,7 @@ serve(async (req) => {
       <tr style="background-color: #f9fafb;">
         <td colspan="6" style="padding: 8px 8px 16px 8px; font-size: 13px; color: #4b5563;">
           <strong>Hinweis:</strong> ${pos.hinweis || "Keine Hinweise"}
-          ${pos.marktpreis_durchschnitt ? `<br><span style="color: #6b7280;">Marktpreis: ${pos.marktpreis_min?.toFixed(2)} - ${pos.marktpreis_max?.toFixed(2)} € (Ø ${pos.marktpreis_durchschnitt?.toFixed(2)} €)</span>` : ""}
+          ${pos.marktpreis_durchschnitt ? `<br><span style="color: #6b7280;">Regionaler Vergleichswert: ${pos.marktpreis_durchschnitt?.toFixed(2)} € (Spannbreite: ${pos.marktpreis_min?.toFixed(2)} – ${pos.marktpreis_max?.toFixed(2)} €)</span>` : ""}
           ${pos.abweichung_prozent ? `<br><span style="color: ${pos.abweichung_prozent > 0 ? '#ef4444' : '#22c55e'};">Abweichung: ${pos.abweichung_prozent > 0 ? '+' : ''}${pos.abweichung_prozent?.toFixed(1)}%</span>` : ""}
         </td>
       </tr>
@@ -193,7 +193,11 @@ serve(async (req) => {
 
   <div class="footer">
     <p>Dieser Report wurde automatisch von AngebotsCheck erstellt.</p>
-    <p>Die Analyse basiert auf Marktdaten und dient als Orientierungshilfe. Alle Angaben ohne Gewähr.</p>
+    <p style="font-size: 11px; color: #6b7280; margin: 12px 0;">
+      Alle Bewertungen sind indikativ und basieren auf regionalen Vergleichsdaten mit eingeschränkter Datenbasis. 
+      Die Einordnungen ersetzen keine fachliche oder rechtliche Beratung. 
+      Preisunterschiede können durch Qualität, Gewährleistung, regionale Faktoren und individuelle Leistungsmerkmale begründet sein.
+    </p>
     <p style="margin-top: 16px;">© ${new Date().getFullYear()} AngebotsCheck - Handwerker-Angebote transparent prüfen</p>
   </div>
 </body>

@@ -97,27 +97,56 @@ interface MultiDocumentAnalysisViewProps {
   onClose: () => void;
 }
 
-// Convert status string to EvaluationLevel
-const toEvaluationLevel = (stufe?: string): EvaluationLevel => {
-  if (!stufe) return 'nicht_einordenbar';
-  const normalized = stufe.toLowerCase().replace(/[äöü]/g, (match) => {
-    return { 'ä': 'ae', 'ö': 'oe', 'ü': 'ue' }[match] || match;
-  }).replace(/[\s-]+/g, '_');
+// Convert status string to EvaluationLevel - with fallback to deviation-based calculation
+const toEvaluationLevel = (stufe?: string, abweichung_prozent?: number): EvaluationLevel => {
+  // First try to parse the stufe string
+  if (stufe) {
+    const normalized = stufe.toLowerCase().replace(/[äöü]/g, (match) => {
+      return { 'ä': 'ae', 'ö': 'oe', 'ü': 'ue' }[match] || match;
+    }).replace(/[\s-]+/g, '_');
+    
+    if (normalized.includes('im_rahmen') || normalized.includes('rahmen') || normalized.includes('regional')) {
+      return 'im_regionalen_rahmen';
+    }
+    if (normalized.includes('leicht_ueber') || normalized.includes('leicht_uber') || normalized.includes('leicht_über')) {
+      return 'leicht_ueber_vergleich';
+    }
+    if (normalized.includes('auffaellig_hoch') || normalized.includes('auffällig_hoch')) {
+      return 'auffaellig_hoch';
+    }
+    if (normalized.includes('auffaellig_niedrig') || normalized.includes('auffällig_niedrig')) {
+      return 'auffaellig_niedrig';
+    }
+    // Only return nicht_einordenbar if explicitly stated AND no deviation available
+    if (normalized.includes('nicht_einordenbar') || normalized.includes('nicht_eindeutig')) {
+      // If we have a deviation, calculate based on that instead
+      if (abweichung_prozent !== undefined && abweichung_prozent !== null) {
+        return calculateLevelFromDeviation(abweichung_prozent);
+      }
+      return 'nicht_einordenbar';
+    }
+  }
   
-  if (normalized.includes('im_rahmen') || normalized.includes('rahmen')) {
-    return 'im_regionalen_rahmen';
-  }
-  if (normalized.includes('leicht_ueber') || normalized.includes('leicht_uber') || normalized.includes('leicht')) {
-    return 'leicht_ueber_vergleich';
-  }
-  if (normalized.includes('auffaellig_hoch') || normalized.includes('hoch')) {
-    return 'auffaellig_hoch';
-  }
-  if (normalized.includes('auffaellig_niedrig') || normalized.includes('niedrig')) {
-    return 'auffaellig_niedrig';
+  // Fallback: If we have a deviation percentage, calculate the level from it
+  if (abweichung_prozent !== undefined && abweichung_prozent !== null) {
+    return calculateLevelFromDeviation(abweichung_prozent);
   }
   
   return 'nicht_einordenbar';
+};
+
+// Calculate evaluation level from deviation percentage
+const calculateLevelFromDeviation = (abweichung: number): EvaluationLevel => {
+  const absDeviation = Math.abs(abweichung);
+  
+  if (absDeviation <= 15) {
+    return 'im_regionalen_rahmen';
+  } else if (absDeviation <= 25) {
+    return 'leicht_ueber_vergleich';
+  } else {
+    // More than 25% deviation
+    return abweichung > 0 ? 'auffaellig_hoch' : 'auffaellig_niedrig';
+  }
 };
 
 // Status configuration for summary
@@ -140,7 +169,7 @@ function getStatusCounts(positionen: Position[]) {
   };
   
   positionen.forEach(pos => {
-    const status = toEvaluationLevel(pos.einordnung_stufe);
+    const status = toEvaluationLevel(pos.einordnung_stufe, pos.abweichung_prozent);
     counts[status]++;
   });
   
@@ -199,7 +228,7 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
 
     successfulDocs.forEach(doc => {
       doc.positionen?.forEach(pos => {
-        const status = toEvaluationLevel(pos.einordnung_stufe);
+        const status = toEvaluationLevel(pos.einordnung_stufe, pos.abweichung_prozent);
         counts[status]++;
       });
     });
@@ -330,7 +359,7 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
                           </TableHeader>
                           <TableBody>
                             {doc.positionen?.map((pos, j) => {
-                              const status = toEvaluationLevel(pos.einordnung_stufe);
+                              const status = toEvaluationLevel(pos.einordnung_stufe, pos.abweichung_prozent);
                               const hasDetails = pos.einordnung_begruendung || pos.marktpreis_durchschnitt || pos.hinweis || pos.datengrundlage;
                               
                               return (
@@ -414,7 +443,7 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
                       {/* Mobile Cards */}
                       <div className="sm:hidden space-y-3">
                         {doc.positionen?.map((pos, j) => {
-                          const status = toEvaluationLevel(pos.einordnung_stufe);
+                          const status = toEvaluationLevel(pos.einordnung_stufe, pos.abweichung_prozent);
                           return (
                             <div key={j} className="p-3 rounded-lg border bg-card">
                               <div className="flex items-start justify-between gap-2 mb-2">

@@ -7,10 +7,11 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
-  // Handle CORS
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
+
+  const startTime = Date.now();
 
   try {
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
@@ -19,109 +20,103 @@ serve(async (req) => {
     }
 
     const body = await req.json();
+    console.log('📄 Neue Analyse-Anfrage erhalten');
     
-    // Support multiple input formats
-    const document = body.document || body.fileBase64 || body.imageBase64 || '';
+    // Get document data - support multiple formats
+    let documentData = body.fileBase64 || body.document || body.imageBase64 || '';
     const plz = body.plz || '';
     const stadt = body.stadt || '';
     
-    if (!document) {
+    if (!documentData) {
       throw new Error('Kein Dokument übermittelt');
     }
 
-    console.log('📄 Starte Handwerker-Rechnungsanalyse');
-    console.log(`📍 Region: PLZ ${plz || 'nicht angegeben'}, Stadt: ${stadt || 'nicht angegeben'}`);
-
-    // Prepare base64 for AI - handle data URL prefix
-    let base64Content = document;
-    let mimeType = body.mimeType || body.fileType || 'application/pdf';
+    // Extract base64 and mime type from data URL
+    let base64Content = documentData;
+    let mimeType = body.fileType || 'application/pdf';
     
-    if (document.startsWith('data:')) {
-      const match = document.match(/data:([^;]+);base64,(.+)/);
+    if (documentData.startsWith('data:')) {
+      const match = documentData.match(/^data:([^;]+);base64,(.+)$/);
       if (match) {
         mimeType = match[1];
         base64Content = match[2];
+        console.log(`📎 Dokument-Typ: ${mimeType}`);
       }
     }
 
-    // Build region context
-    const regionInfo = plz || stadt 
-      ? `Die Rechnung stammt aus der Region: ${stadt ? stadt + ', ' : ''}${plz ? 'PLZ ' + plz : ''} (Deutschland).`
-      : 'Die Region ist nicht bekannt, verwende bundesweite Durchschnittswerte.';
+    // Log document info
+    const docSizeKB = Math.round(base64Content.length * 0.75 / 1024);
+    console.log(`📊 Dokument-Größe: ~${docSizeKB} KB`);
+    console.log(`📍 Region: ${plz || 'nicht angegeben'}`);
 
-    // Single AI call for complete analysis - directly process the document
-    const systemPrompt = `Du bist ein erfahrener Experte für Handwerker-Rechnungen in Deutschland. Du analysierst Rechnungen und bewertest, ob die Preise fair und marktüblich sind.
+    // Build the data URL for the AI
+    const dataUrl = `data:${mimeType};base64,${base64Content}`;
 
-DEINE AUFGABE:
-1. Extrahiere ALLE Positionen aus der Rechnung mit ihren Preisen
-2. Bewerte JEDE Position basierend auf deinem Wissen über marktübliche Handwerkerpreise 2024/2025
+    // System prompt for analysis
+    const systemPrompt = `Du bist ein Experte für Handwerker-Rechnungen in Deutschland.
 
-BEWERTUNGSSTUFEN (du MUSST eine davon wählen):
-- "im_regionalen_rahmen": Preis ist marktüblich (innerhalb ±15% des Üblichen)
-- "leicht_ueber_vergleich": Preis ist 15-30% über dem Marktüblichen  
-- "auffaellig_hoch": Preis ist mehr als 30% über dem Marktüblichen
-- "auffaellig_niedrig": Preis ist mehr als 30% unter dem Marktüblichen
+AUFGABE:
+1. Lies die Rechnung sorgfältig
+2. Extrahiere ALLE Positionen mit Preisen
+3. Bewerte jeden Preis basierend auf Marktdaten 2024/2025
 
-WICHTIGE REGELN:
-1. Handwerker haben legitime Kosten (Material, Arbeitszeit, Anfahrt, Gewährleistung) - eine Marge von 15-25% ist NORMAL und OK
-2. Berücksichtige ob Materialkosten enthalten sind oder nur Arbeitszeit
-3. Qualitätsunterschiede (z.B. Premium-Material) rechtfertigen höhere Preise
-4. Im ZWEIFEL bewerte als "im_regionalen_rahmen" - sei nicht zu streng!
-5. Du MUSST IMMER eine Bewertung abgeben - NIEMALS "nicht einordenbar" oder ähnliches!
+BEWERTUNGSSTUFEN (wähle IMMER eine):
+- "im_regionalen_rahmen": Preis ist fair (±15% vom Markt)
+- "leicht_ueber_vergleich": Preis 15-30% über Markt
+- "auffaellig_hoch": Preis >30% über Markt  
+- "auffaellig_niedrig": Preis >30% unter Markt
 
-MARKTÜBLICHE RICHTWERTE (pro Stunde, 2024):
+MARKTPREISE (Stundensätze 2024):
 - Elektriker: 55-85€
-- Sanitär/Heizung: 55-80€
+- Sanitär: 55-80€
 - Maler: 40-60€
 - Fliesenleger: 45-70€
 - Tischler: 50-75€
 - Dachdecker: 55-80€
-- Maurer: 45-70€
-- Allgemeine Handwerker: 45-65€
+- Allgemein: 45-65€
 
-REGIONALE FAKTOREN:
-- München, Frankfurt, Hamburg: +15-25%
-- Ländliche Gebiete: -10-15%
-- Standardregionen: Basispreis
+REGELN:
+1. Handwerker brauchen Marge - 15-25% Aufschlag ist NORMAL
+2. Material + Arbeit berücksichtigen
+3. Im Zweifel: "im_regionalen_rahmen"
+4. NIEMALS "nicht einordenbar" - immer eine Stufe wählen!
+5. Analysiere die TATSÄCHLICHEN Positionen aus dem Dokument
 
-${regionInfo}`;
+${plz ? `Region: PLZ ${plz} (berücksichtige regionale Faktoren)` : ''}`;
 
-    const userPrompt = `Analysiere diese Handwerker-Rechnung und gib das Ergebnis als JSON zurück.
+    const userPrompt = `Analysiere diese Handwerker-Rechnung und antworte NUR mit JSON:
 
-WICHTIG: Antworte NUR mit validem JSON in exakt diesem Format:
 {
-  "handwerker_firma": "Name der Firma falls erkennbar",
-  "gewerk": "Art des Handwerks (Elektro, Sanitär, Maler, etc.)",
-  "rechnungsdatum": "Datum falls erkennbar",
+  "handwerker_firma": "Firmenname",
+  "gewerk": "Art (Elektro/Sanitär/Maler/etc.)",
   "gesamtbetrag": 1234.56,
   "positionen": [
     {
-      "beschreibung": "Exakte Beschreibung aus der Rechnung",
+      "beschreibung": "Text aus Rechnung",
       "menge": 1,
-      "einheit": "Stück/Stunde/m²/pauschal",
+      "einheit": "Stück/Stunde/m²",
       "einzelpreis": 50.00,
       "gesamtpreis": 50.00,
       "einordnung_stufe": "im_regionalen_rahmen",
       "abweichung_prozent": 0,
-      "einordnung_begruendung": "Kurze Begründung warum dieser Preis so bewertet wird",
-      "marktpreis_min": 40.00,
-      "marktpreis_max": 60.00,
-      "marktpreis_durchschnitt": 50.00
+      "einordnung_begruendung": "Warum so bewertet",
+      "marktpreis_min": 40,
+      "marktpreis_max": 60,
+      "marktpreis_durchschnitt": 50
     }
   ],
-  "zusammenfassung": "Kurze Gesamtbewertung der Rechnung",
-  "empfehlung": "Konkrete Handlungsempfehlung für den Kunden"
+  "zusammenfassung": "Gesamtbewertung in 1-2 Sätzen",
+  "empfehlung": "Handlungsempfehlung"
 }
 
-REGELN:
-- Extrahiere ALLE Positionen, auch kleine
-- JEDE Position MUSS eine einordnung_stufe haben (NIEMALS leer oder "nicht einordenbar")
-- abweichung_prozent: 0 = genau im Rahmen, positiv = über Markt, negativ = unter Markt
-- Sei fair und berücksichtige dass Handwerker von ihrer Arbeit leben müssen`;
+WICHTIG:
+- Extrahiere NUR Positionen die WIRKLICH im Dokument stehen
+- Erfinde KEINE Positionen
+- JEDE Position braucht eine einordnung_stufe
+- Antworte NUR mit JSON, kein anderer Text`;
 
-    console.log('🤖 Sende Dokument direkt an KI zur Analyse...');
+    console.log('🤖 Sende an KI zur Analyse...');
 
-    // Send document directly to AI with vision capability
     const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -136,16 +131,11 @@ REGELN:
             role: 'user', 
             content: [
               { type: 'text', text: userPrompt },
-              { 
-                type: 'image_url', 
-                image_url: { 
-                  url: `data:${mimeType};base64,${base64Content}` 
-                } 
-              }
+              { type: 'image_url', image_url: { url: dataUrl } }
             ]
           }
         ],
-        temperature: 0.3,
+        temperature: 0.2,
         max_tokens: 8000,
       }),
     });
@@ -153,17 +143,6 @@ REGELN:
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
       console.error('❌ KI-Fehler:', aiResponse.status, errorText);
-      
-      if (aiResponse.status === 429) {
-        return new Response(JSON.stringify({ 
-          success: false, 
-          error: 'Rate-Limit erreicht. Bitte später erneut versuchen.' 
-        }), {
-          status: 429,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-      
       throw new Error(`KI-Analyse fehlgeschlagen: ${aiResponse.status}`);
     }
 
@@ -171,101 +150,91 @@ REGELN:
     const content = aiData.choices?.[0]?.message?.content;
 
     if (!content) {
-      throw new Error('Keine Antwort von der KI erhalten');
+      throw new Error('Keine Antwort von KI');
     }
 
-    console.log('✅ KI-Antwort erhalten, parse JSON...');
+    console.log('✅ KI-Antwort erhalten');
 
-    // Parse JSON from response
+    // Parse JSON
     let analysis;
     try {
-      // Try to extract JSON from markdown code blocks
       const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
       const jsonStr = jsonMatch ? jsonMatch[1].trim() : content.trim();
       analysis = JSON.parse(jsonStr);
     } catch (parseError) {
-      console.error('❌ JSON-Parse-Fehler:', parseError);
-      console.log('Raw content:', content.substring(0, 500));
-      throw new Error('KI-Antwort konnte nicht als JSON geparst werden');
+      console.error('❌ JSON-Parse-Fehler');
+      console.log('Raw:', content.substring(0, 300));
+      throw new Error('JSON-Parsing fehlgeschlagen');
     }
 
-    // Validate and clean up the analysis
+    // Validate positions
     if (!analysis.positionen || !Array.isArray(analysis.positionen)) {
       analysis.positionen = [];
     }
 
-    // Ensure every position has required fields
-    analysis.positionen = analysis.positionen.map((pos: any, index: number) => {
-      // Default evaluation if missing
-      if (!pos.einordnung_stufe || pos.einordnung_stufe === 'nicht_einordenbar') {
-        pos.einordnung_stufe = 'im_regionalen_rahmen';
-        pos.einordnung_begruendung = pos.einordnung_begruendung || 'Preis erscheint marktüblich';
-      }
-
-      return {
-        position_nummer: index + 1,
-        beschreibung: pos.beschreibung || 'Unbekannte Position',
-        menge: pos.menge || 1,
-        einheit: pos.einheit || 'Stück',
-        einzelpreis: pos.einzelpreis || pos.gesamtpreis || 0,
-        gesamtpreis: pos.gesamtpreis || pos.einzelpreis || 0,
-        einordnung_stufe: pos.einordnung_stufe,
-        abweichung_prozent: pos.abweichung_prozent || 0,
-        einordnung_begruendung: pos.einordnung_begruendung || '',
-        marktpreis_min: pos.marktpreis_min || null,
-        marktpreis_max: pos.marktpreis_max || null,
-        marktpreis_durchschnitt: pos.marktpreis_durchschnitt || null,
-        datenquelle: 'KI-Markteinschätzung',
-        datengrundlage: 'Basierend auf aktuellen Marktdaten 2024/2025',
-      };
-    });
-
-    // Calculate summary statistics
-    const statusCounts: Record<string, number> = {
+    // Count evaluations
+    const counts: Record<string, number> = {
       im_regionalen_rahmen: 0,
       leicht_ueber_vergleich: 0,
       auffaellig_hoch: 0,
       auffaellig_niedrig: 0,
     };
 
-    analysis.positionen.forEach((pos: any) => {
-      const status = pos.einordnung_stufe;
-      if (statusCounts[status] !== undefined) {
-        statusCounts[status]++;
-      }
+    // Clean up positions
+    analysis.positionen = analysis.positionen.map((pos: any, idx: number) => {
+      const stufe = pos.einordnung_stufe || 'im_regionalen_rahmen';
+      if (counts[stufe] !== undefined) counts[stufe]++;
+
+      return {
+        position_nummer: idx + 1,
+        beschreibung: pos.beschreibung || 'Position',
+        menge: pos.menge || 1,
+        einheit: pos.einheit || 'Stück',
+        einzelpreis: pos.einzelpreis || pos.gesamtpreis || 0,
+        gesamtpreis: pos.gesamtpreis || pos.einzelpreis || 0,
+        einordnung_stufe: stufe,
+        abweichung_prozent: pos.abweichung_prozent || 0,
+        einordnung_begruendung: pos.einordnung_begruendung || 'Marktüblicher Preis',
+        marktpreis_min: pos.marktpreis_min || null,
+        marktpreis_max: pos.marktpreis_max || null,
+        marktpreis_durchschnitt: pos.marktpreis_durchschnitt || null,
+        datenquelle: 'KI-Markteinschätzung',
+        datengrundlage: 'Marktdaten 2024/2025',
+      };
     });
 
-    console.log('📊 Bewertungs-Verteilung:', statusCounts);
+    console.log('📊 Bewertungen:', JSON.stringify(counts));
 
-    // Build final result
+    const processingTime = Date.now() - startTime;
+    console.log(`✅ Fertig in ${processingTime}ms`);
+
     const result = {
       success: true,
       handwerker_firma: analysis.handwerker_firma || null,
       gewerk: analysis.gewerk || 'Handwerk',
-      rechnungsdatum: analysis.rechnungsdatum || null,
       gesamtbetrag: analysis.gesamtbetrag || null,
       positionen: analysis.positionen,
       zusammenfassung: analysis.zusammenfassung || 'Analyse abgeschlossen.',
       empfehlung: analysis.empfehlung || null,
-      statistik: statusCounts,
+      statistik: counts,
       analysiert_am: new Date().toISOString(),
-      datenquelle: 'KI-Markteinschätzung',
-      region: { plz, stadt },
+      processing_time_ms: processingTime,
     };
-
-    console.log('✅ Analyse abgeschlossen');
 
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
   } catch (error) {
+    const processingTime = Date.now() - startTime;
     console.error('❌ Fehler:', error);
+    
     return new Response(
       JSON.stringify({ 
         success: false, 
         error: error instanceof Error ? error.message : 'Unbekannter Fehler',
-        positionen: []
+        positionen: [],
+        processing_time_ms: processingTime,
       }),
       { 
         status: 500, 

@@ -54,6 +54,51 @@ async function createDocumentHash(content: string): Promise<string> {
   return decoder.decode(encodeHex(hashArray));
 }
 
+// Kfz-spezifische defensive Regeln anwenden
+function applyKfzDefensiveRules(pos: Position, serviceDomain: string): Position {
+  if (serviceDomain !== 'kfz_werkstatt') return pos;
+  
+  const beschreibung = pos.beschreibung?.toLowerCase() || '';
+  
+  // Kfz-typische Positionen die IMMER defensiv bewertet werden müssen
+  const needsDefensiveEvaluation = 
+    beschreibung.includes('inspektion') ||
+    beschreibung.includes('ölwechsel') ||
+    beschreibung.includes('motoröl') ||
+    beschreibung.includes('5w') || // Ölviskosität
+    beschreibung.includes('10w') ||
+    beschreibung.includes('0w') ||
+    beschreibung.includes('service') ||
+    beschreibung.includes('wartung');
+  
+  // Wenn typische Kfz-Position UND keine ausreichenden Daten
+  const hasInsufficientData = !pos.datengrundlage || 
+    pos.datengrundlage.includes('Keine') || 
+    pos.datengrundlage.includes('Allgemeine') ||
+    pos.datengrundlage.includes('indikativ');
+  
+  if (needsDefensiveEvaluation && hasInsufficientData) {
+    console.warn(`🚗 KFZ-DEFENSIVE: "${pos.beschreibung?.substring(0, 40)}..." → nicht_einordenbar`);
+    
+    pos.einordnung_stufe = 'nicht_einordenbar';
+    
+    if (beschreibung.includes('inspektion') || beschreibung.includes('service') || beschreibung.includes('wartung')) {
+      pos.hinweis = 'Pauschale Abrechnung ohne fahrzeugspezifische Arbeitswerte – preislich nicht eindeutig einordenbar';
+      pos.einordnung_begruendung = 'Ohne Angabe von Arbeitswerten (AW) und Fahrzeugklasse ist eine preisliche Einordnung nicht möglich';
+    } else if (beschreibung.includes('öl') || beschreibung.includes('5w') || beschreibung.includes('10w') || beschreibung.includes('0w')) {
+      pos.hinweis = 'Ölqualität und Herstellerfreigabe nicht spezifiziert – keine verlässliche Preiseinordnung möglich';
+      pos.einordnung_begruendung = 'Ölpreise variieren stark je nach Qualität, OEM-Freigabe und Marke';
+    } else {
+      pos.hinweis = 'Aufgrund eingeschränkter fahrzeugspezifischer Vergleichsdaten nicht eindeutig einordenbar';
+      pos.einordnung_begruendung = 'Keine ausreichenden regionalen Vergleichsdaten für diese Kfz-Leistung verfügbar';
+    }
+    
+    pos.datengrundlage = 'Keine ausreichende Vergleichsbasis';
+  }
+  
+  return pos;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -233,15 +278,29 @@ Brutto: ${extractResult.gesamtsumme_brutto || extractResult.summe_brutto || 'Unb
 
     const regionContext = plz ? `\nREGION: PLZ ${plz}${stadt ? `, ${stadt}` : ''} - Berücksichtige regionale Preisunterschiede für diese Region.` : '';
 
-    const systemPrompt = `Du bist ein Experte für die Bewertung von Handwerker-Angeboten, Kostenvoranschlägen und Rechnungen in Deutschland.
+    const systemPrompt = `Du bist ein Experte für die Bewertung von Handwerker-Angeboten, Kostenvoranschlägen, Rechnungen UND Kfz-Werkstatt-Dokumenten in Deutschland.
 
 DEINE AUFGABE:
-1. Extrahiere ALLE Positionen die im Original-Dokument mit einem EIGENEN Preis versehen sind
-2. Bewerte jede bepreiste Position anhand von Marktdaten
-3. Gib eine Gesamtbewertung ab
+1. Bestimme zuerst die SERVICE_DOMAIN (handwerk ODER kfz_werkstatt)
+2. Extrahiere ALLE Positionen die im Original-Dokument mit einem EIGENEN Preis versehen sind
+3. Bewerte jede bepreiste Position anhand von Marktdaten
+4. Gib eine Gesamtbewertung ab
 
 ${marktpreisContext}
 ${regionContext}
+
+⚠️⚠️⚠️ SCHRITT 0: SERVICE_DOMAIN BESTIMMEN ⚠️⚠️⚠️
+
+Analysiere das Dokument auf Kfz-typische Begriffe:
+- Inspektion, Ölwechsel, Bremsen, Reifen, TÜV, HU, AU
+- Fahrzeugdaten, Fahrgestellnummer, Kilometerstand
+- Arbeitswerte (AW), Stundensatz Werkstatt
+- Kfz-Werkstatt, Autowerkstatt, Autohaus
+- Motoröl, 5W30, 10W40, Bremsflüssigkeit
+- Ersatzteile wie Bremsbeläge, Filter, Zündkerzen
+
+→ Wenn Kfz-Kontext erkannt: service_domain = "kfz_werkstatt"
+→ Sonst: service_domain = "handwerk"
 
 ⚠️⚠️⚠️ MATHEMATISCH VERBINDLICHE BEWERTUNGSREGELN ⚠️⚠️⚠️
 
@@ -267,13 +326,34 @@ BEISPIELE zur Verdeutlichung:
 - abweichung_prozent = -25 → einordnung_stufe = "leicht_unter_vergleich"
 - abweichung_prozent = -61 → einordnung_stufe = "auffaellig_niedrig"
 
-"nicht_einordenbar" → NUR bei echten Notdiensten oder wenn KEINE Marktdaten möglich sind
+⚠️⚠️⚠️ SPEZIALREGELN FÜR KFZ-WERKSTÄTTEN ⚠️⚠️⚠️
 
-⚠️ KRITISCH - EINORDNUNGS-PFLICHT:
-1. Wenn du marktpreis_durchschnitt angeben KANNST → MUSS eine Einordnung basierend auf abweichung_prozent erfolgen
-2. Die einordnung_stufe MUSS mathematisch zur abweichung_prozent passen!
-3. Spezialanfertigungen → Trotzdem einordnen mit geschätzten Marktpreisen
-4. Pauschalangebote → Trotzdem einordnen mit Vergleich zu ähnlichen Projekten
+Wenn service_domain = "kfz_werkstatt":
+
+1. PAUSCHALINSPEKTIONEN ohne Arbeitswert-Aufschlüsselung:
+   → einordnung_stufe = "nicht_einordenbar"
+   → hinweis = "Pauschale Abrechnung ohne fahrzeugspezifische Arbeitswerte – preislich nicht eindeutig einordenbar"
+
+2. MOTORÖL ohne Qualitäts-/Freigabe-Angabe:
+   → einordnung_stufe = "nicht_einordenbar"
+   → hinweis = "Ölqualität und Herstellerfreigabe nicht spezifiziert – keine verlässliche Preiseinordnung möglich"
+
+3. ERSATZTEILE müssen klassifiziert werden:
+   - OEM (Original Equipment Manufacturer)
+   - Marken-Aftermarket (z.B. Bosch, TRW)
+   - No-Name/Unbekannt
+
+4. ARBEITSWERTE (AW):
+   → Nur relativ vergleichen, nicht absolut bewerten
+   → Wenn keine AW angegeben: "nicht_einordenbar"
+
+5. GRUNDSATZ für Kfz:
+   Kfz-Bewertungen sind IMMER defensiver als Handwerk!
+   Lieber "nicht_einordenbar" als eine unsichere positive Einordnung.
+
+⚠️ KRITISCH - EINORDNUNGS-REGELN:
+- "nicht_einordenbar" → Bei Notdiensten, fehlenden Arbeitswerten, unspezifizierten Materialien, ODER wenn KEINE belastbaren Vergleichsdaten vorhanden
+- Wenn datengrundlage = "Keine ausreichende Vergleichsbasis" → MUSS einordnung_stufe = "nicht_einordenbar" sein!
 
 ⚠️ POSITIONS-EXTRAKTION:
 1. Extrahiere GENAU die Positionen die im Dokument einen EIGENEN Gesamtpreis (€) haben
@@ -282,13 +362,16 @@ BEISPIELE zur Verdeutlichung:
 4. ZÄHLE NUR Positionen mit eigenem €-Betrag
 
 ⚠️⚠️⚠️ SPRACHLICHE REGELN (CHARTA-KONFORM) ⚠️⚠️⚠️
-VERBOTEN - NIEMALS verwenden:
+
+🚫 VERBOTEN - NIEMALS verwenden:
 - "Marktpreis für Deutschland" oder "durchschnittlicher Marktpreis"
 - "Branchendurchschnitt" oder "typisch für..."
+- "Allgemeine Markteinschätzung" oder "basierend auf Markteinschätzung"
+- "über dem Durchschnitt" oder "unter dem Durchschnitt"
 - Absolute Aussagen wie "der Preis ist...", "kostet normalerweise..."
 - Städtenamen oder PLZ in Hinweisen (nur "in der Region" oder "regional")
 
-PFLICHT - IMMER verwenden:
+✅ PFLICHT - IMMER verwenden:
 - "Im regionalen Vergleich..." oder "Innerhalb der beobachteten Spannbreite..."
 - "...konnte eingeordnet werden als..." statt "...ist..."
 - "...basierend auf verfügbaren Vergleichsdaten..." bei jeder Bewertung
@@ -301,10 +384,20 @@ HINWEIS-FORMULIERUNGEN (verwende NUR diese Muster):
 - "Deutlich unter den regionalen Vergleichswerten – Leistungsumfang und Qualität prüfen"
 - "Aufgrund eingeschränkter Vergleichsdaten nicht eindeutig einordenbar"
 
-DATENGRUNDLAGE-WERTE (nur diese verwenden):
-- "Regionale Vergleichsdaten" (wenn interne Daten vorhanden)
+DATENGRUNDLAGE-WERTE (nur diese drei verwenden):
+- "Regionale Vergleichsdaten" (wenn belastbare interne Marktdaten vorhanden)
 - "Begrenzte regionale Datenbasis" (wenn wenige Vergleichspunkte)
-- "Allgemeine Markteinschätzung (indikativ)" (wenn nur KI-Schätzung)
+- "Keine ausreichende Vergleichsbasis" (wenn keine Daten → dann MUSS einordnung_stufe = "nicht_einordenbar")
+
+⚠️ NIEMALS "Allgemeine Markteinschätzung" als Datengrundlage verwenden!
+
+ANALYSIS_SUMMARY FORMULIERUNG:
+
+Für service_domain = "kfz_werkstatt":
+"Die positionsbezogene Einordnung dieses Kfz-Werkstatt-Angebots erfolgte auf Basis verfügbarer Vergleichsinformationen. Für einzelne Positionen ist die Vergleichbarkeit eingeschränkt, da regionale Referenzdaten und fahrzeugspezifische Details nur begrenzt vorliegen. Die Bewertung erfolgt indikativ."
+
+Für service_domain = "handwerk":
+"Die positionsbezogene Einordnung dieses Handwerker-Angebots erfolgte auf Basis verfügbarer regionaler Vergleichsdaten. Die Bewertung erfolgt indikativ und dient der sachlichen Einordnung."
 
 Antworte IMMER als valides JSON mit dieser Struktur:
 {
@@ -315,7 +408,7 @@ Antworte IMMER als valides JSON mit dieser Struktur:
   "plz": "PLZ oder null",
   "stadt": "Stadt oder null",
   "region": "Region oder null",
-  "service_domain": "handwerk",
+  "service_domain": "handwerk" | "kfz_werkstatt",
   "gesamtpreis": Zahl,
   "plausibility_score": 0-100,
   "analysis_summary": "Zusammenfassung mit Hinweis auf Regionalität und Datenbasis (2-3 Sätze, defensiv formuliert)",
@@ -325,16 +418,16 @@ Antworte IMMER als valides JSON mit dieser Struktur:
       "beschreibung": "Positionsbeschreibung",
       "material": "Material oder null",
       "menge": Zahl oder null,
-      "einheit": "Stück/m²/Stunde/etc oder null",
+      "einheit": "Stück/m²/Stunde/AW/etc oder null",
       "einzelpreis": Zahl oder null,
       "gesamtpreis": Zahl,
       "einordnung_stufe": "im_regionalen_rahmen|leicht_ueber_vergleich|leicht_unter_vergleich|auffaellig_hoch|auffaellig_niedrig|nicht_einordenbar",
       "einordnung_begruendung": "Defensive Begründung mit Hinweis auf Vergleichsbasis",
-      "marktpreis_min": Zahl,
-      "marktpreis_max": Zahl,
-      "marktpreis_durchschnitt": Zahl,
-      "abweichung_prozent": Zahl (positiv = teurer, negativ = günstiger),
-      "datengrundlage": "Regionale Vergleichsdaten" | "Begrenzte regionale Datenbasis" | "Allgemeine Markteinschätzung (indikativ)",
+      "marktpreis_min": Zahl oder null,
+      "marktpreis_max": Zahl oder null,
+      "marktpreis_durchschnitt": Zahl oder null,
+      "abweichung_prozent": Zahl oder null (positiv = teurer, negativ = günstiger),
+      "datengrundlage": "Regionale Vergleichsdaten" | "Begrenzte regionale Datenbasis" | "Keine ausreichende Vergleichsbasis",
       "hinweis": "Charta-konformer Hinweis mit Regionalitäts- und Datenbasis-Hinweis"
     }
   ]
@@ -359,7 +452,7 @@ Antworte IMMER als valides JSON mit dieser Struktur:
             },
             {
               type: 'text',
-              text: `Analysiere dieses Handwerker-Dokument (${documentType || 'Angebot/Rechnung'}). Extrahiere alle Positionen und bewerte jeden Preis.`
+              text: `Analysiere dieses Dokument. Bestimme zuerst ob es ein Handwerker- oder Kfz-Werkstatt-Dokument ist. Extrahiere alle Positionen und bewerte jeden Preis nach den Charta-Regeln.`
             }
           ]
         }
@@ -371,7 +464,7 @@ Antworte IMMER als valides JSON mit dieser Struktur:
         { role: 'system', content: systemPrompt },
         {
           role: 'user',
-          content: `Analysiere dieses Handwerker-Dokument (${documentType || 'Angebot/Rechnung'}):\n\n${documentContent}`
+          content: `Analysiere dieses Dokument. Bestimme zuerst ob es ein Handwerker- oder Kfz-Werkstatt-Dokument ist:\n\n${documentContent}`
         }
       ];
     }
@@ -548,20 +641,30 @@ Antworte IMMER als valides JSON mit dieser Struktur:
         console.warn(`⚠️ EINORDNUNG KORRIGIERT: Position "${pos.beschreibung?.substring(0, 50)}..." - ${pos.einordnung_stufe} → ${korrekteEinordnung} (abweichung: ${abweichung.toFixed(1)}%)`);
         pos.einordnung_stufe = korrekteEinordnung;
         
-        // Hinweis anpassen wenn nötig
-        if (korrekteEinordnung === 'auffaellig_niedrig' && pos.hinweis?.includes('im Rahmen')) {
-          pos.hinweis = `Auffällig günstig (${Math.abs(abweichung).toFixed(0)}% unter Durchschnitt) - Qualität und Leistungsumfang prüfen`;
-        } else if (korrekteEinordnung === 'auffaellig_hoch' && pos.hinweis?.includes('im Rahmen')) {
-          pos.hinweis = `Auffällig teuer (${abweichung.toFixed(0)}% über Durchschnitt) - Nachverhandlung empfohlen`;
+        // Hinweis anpassen - CHARTA-KONFORM (keine "Durchschnitt" Formulierungen!)
+        if (korrekteEinordnung === 'auffaellig_niedrig') {
+          pos.hinweis = `Deutlich unter den regionalen Vergleichswerten (${Math.abs(abweichung).toFixed(0)}% Abweichung) – Leistungsumfang und Qualität prüfen`;
+        } else if (korrekteEinordnung === 'auffaellig_hoch') {
+          pos.hinweis = `Auffällig über den Vergleichswerten (${abweichung.toFixed(0)}% Abweichung) – nähere Prüfung der Leistungsbeschreibung empfohlen`;
         }
       }
       
       return pos;
     }
 
+    // Determine service_domain from analysis result
+    const serviceDomain = analysisResult.service_domain || 'handwerk';
+    console.log(`Service Domain erkannt: ${serviceDomain}`);
+
     // Ensure all positions have required fields with defaults AND validate einordnung
     if (analysisResult.positionen) {
       analysisResult.positionen = analysisResult.positionen.map((pos, index) => {
+        // Korrigiere verbotene Datengrundlage-Werte
+        let datengrundlage = pos.datengrundlage || 'Keine ausreichende Vergleichsbasis';
+        if (datengrundlage.includes('Allgemeine') || datengrundlage.includes('indikativ')) {
+          datengrundlage = 'Keine ausreichende Vergleichsbasis';
+        }
+        
         const normalizedPos: Position = {
           position_nummer: pos.position_nummer || index + 1,
           beschreibung: pos.beschreibung || 'Unbekannte Position',
@@ -576,18 +679,31 @@ Antworte IMMER als valides JSON mit dieser Struktur:
           marktpreis_max: pos.marktpreis_max || undefined,
           marktpreis_durchschnitt: pos.marktpreis_durchschnitt || undefined,
           abweichung_prozent: pos.abweichung_prozent || undefined,
-          datengrundlage: pos.datengrundlage || 'Allgemeine Markteinschätzung',
+          datengrundlage: datengrundlage,
           hinweis: pos.hinweis || 'Keine weiteren Hinweise'
         };
         
+        // Wenn Datengrundlage "Keine ausreichende Vergleichsbasis" ist, MUSS einordnung_stufe = "nicht_einordenbar" sein
+        if (normalizedPos.datengrundlage === 'Keine ausreichende Vergleichsbasis') {
+          normalizedPos.einordnung_stufe = 'nicht_einordenbar';
+          if (!normalizedPos.hinweis || normalizedPos.hinweis === 'Keine weiteren Hinweise') {
+            normalizedPos.hinweis = 'Aufgrund eingeschränkter Vergleichsdaten nicht eindeutig einordenbar';
+          }
+        }
+        
         // Validiere und korrigiere die einordnung_stufe basierend auf abweichung_prozent
-        return validateAndCorrectEinordnung(normalizedPos);
+        let correctedPos = validateAndCorrectEinordnung(normalizedPos);
+        
+        // Wende Kfz-spezifische defensive Regeln an
+        correctedPos = applyKfzDefensiveRules(correctedPos, serviceDomain);
+        
+        return correctedPos;
       });
     }
 
     const duration = Date.now() - startTime;
     console.log(`=== ANALYSE ABGESCHLOSSEN in ${duration}ms ===`);
-    console.log(`Positionen: ${analysisResult.positionen?.length || 0}, Score: ${analysisResult.plausibility_score}`);
+    console.log(`Service Domain: ${serviceDomain}, Positionen: ${analysisResult.positionen?.length || 0}, Score: ${analysisResult.plausibility_score}`);
     
     // Log evaluation level distribution for debugging
     if (analysisResult.positionen && analysisResult.positionen.length > 0) {
@@ -598,10 +714,12 @@ Antworte IMMER als valides JSON mit dieser Struktur:
       });
       console.log('Einordnungs-Verteilung:', JSON.stringify(stufeStats));
       
-      // Warn if too many positions are nicht_einordenbar
+      // Für Kfz-Dokumente ist ein höherer Anteil "nicht_einordenbar" erwünscht!
       const nichtEinordenbar = stufeStats['nicht_einordenbar'] || 0;
       const totalPositionen = analysisResult.positionen.length;
-      if (nichtEinordenbar > totalPositionen * 0.5) {
+      if (serviceDomain === 'kfz_werkstatt') {
+        console.log(`🚗 KFZ-Modus: ${nichtEinordenbar}/${totalPositionen} Positionen sind 'nicht_einordenbar' (defensiv korrekt)`);
+      } else if (nichtEinordenbar > totalPositionen * 0.5) {
         console.warn(`⚠️ WARNUNG: ${nichtEinordenbar}/${totalPositionen} Positionen sind 'nicht_einordenbar' - Prompt-Optimierung prüfen!`);
       }
     }

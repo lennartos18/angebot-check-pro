@@ -4,9 +4,9 @@ import { classify, begruendung, type Stufe } from './classify.ts';
 
 const GATEWAY = 'https://ai.gateway.lovable.dev/v1/chat/completions';
 const TOTAL_BUDGET_MS = 44_000;
-const MODEL_LESEN = 'google/gemini-2.5-pro';
-const MODEL_LESEN_FALLBACK = 'google/gemini-2.5-flash';
-const MODEL_VERGLEICH = 'google/gemini-2.5-flash';
+const MODEL_LESEN = 'google/gemini-3.8-flash';
+const MODEL_LESEN_FALLBACK = 'google/gemini-3.1-flash-lite';
+const MODEL_VERGLEICH = 'google/gemini-3.8-flash';
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
@@ -28,7 +28,6 @@ async function callTool(opts: {
       headers: { Authorization: `Bearer ${opts.apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: opts.model,
-        temperature: 0,
         messages: [
           { role: 'system', content: opts.system },
           { role: 'user', content: opts.userContent },

@@ -1,345 +1,348 @@
-import "https://deno.land/x/xhr@0.1.0/mod.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+// analyze-angebot v4 – 3 Schritte: LESEN (KI) → PRÜFEN (Code) → VERGLEICH (KI-Spannbreite) → Ampel (Code)
+import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
+import { classify, begruendung, type Stufe } from './classify.ts';
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+const GATEWAY = 'https://ai.gateway.lovable.dev/v1/chat/completions';
+const TOTAL_BUDGET_MS = 44_000;
+const MODEL_LESEN = 'google/gemini-2.5-pro';
+const MODEL_LESEN_FALLBACK = 'google/gemini-2.5-flash';
+const MODEL_VERGLEICH = 'google/gemini-2.5-flash';
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+class AiError extends Error {
+  constructor(message: string, public status = 500) { super(message); }
+}
+
+async function callTool(opts: {
+  apiKey: string; model: string; system: string; userContent: unknown;
+  tool: { name: string; description: string; parameters: unknown }; timeoutMs: number;
+}): Promise<any> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), Math.max(1000, opts.timeoutMs));
+  try {
+    const res = await fetch(GATEWAY, {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: { Authorization: `Bearer ${opts.apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: opts.model,
+        temperature: 0,
+        messages: [
+          { role: 'system', content: opts.system },
+          { role: 'user', content: opts.userContent },
+        ],
+        tools: [{ type: 'function', function: opts.tool }],
+        tool_choice: { type: 'function', function: { name: opts.tool.name } },
+      }),
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      console.error(`[analyze-angebot] AI ${opts.model} ${res.status}:`, text.slice(0, 300));
+      if (res.status === 429) throw new AiError('Zu viele Anfragen. Bitte in einem Moment erneut versuchen.', 429);
+      if (res.status === 402) throw new AiError('KI-Guthaben aufgebraucht. Bitte Guthaben aufladen.', 402);
+      throw new AiError('KI-Analyse fehlgeschlagen');
+    }
+    if (!text) throw new AiError('Leere KI-Antwort');
+    const data = JSON.parse(text);
+    const args = data.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
+    if (!args) throw new AiError('KI hat keine strukturierte Antwort geliefert');
+    return typeof args === 'string' ? JSON.parse(args) : args;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ---------- Schritt 1: LESEN ----------
+const LESEN_SYSTEM = `Du bist ein exakter Erfassungs-Assistent für deutsche Handwerker-Angebote und -Rechnungen.
+Deine EINZIGE Aufgabe: Positionen so abschreiben, wie sie im Dokument stehen. Du bewertest NICHTS.
+
+Regeln:
+- Erfasse jede Leistungsposition genau EINMAL, in der Reihenfolge des Dokuments.
+- Eine Position hat einen eigenen Preis (Einzelpreis und/oder Gesamtpreis). Langtexte/Erläuterungen ohne eigenen Preis gehören zur Beschreibung der darüberstehenden Position – nicht als eigene Position.
+- KEINE Zwischensummen, Überträge, Titelsummen, Netto/Brutto/MwSt-Zeilen, Rabatt-Summen, Bankdaten, AGB.
+- Zahlen exakt übernehmen (deutsches Format "1.234,56" → 1234.56). Fehlt ein Wert im Dokument, setze null. NIEMALS Werte erfinden oder errechnen.
+- "beschreibung": kurzer Leistungstext (max. ~150 Zeichen), wörtlich aus dem Dokument.
+- "einheit" wie im Dokument (m², m, Stk, Std, psch, ...). "ist_pauschal" = true bei psch/pauschal/1 Pauschale.
+- Bei Bedarfs-/Alternativ-/Eventualpositionen (ohne Gesamtbetrag in der Summe): "ist_optional" = true.
+- Gewerk kurz benennen (z. B. Zimmerei, Maler, Sanitär, Elektro, Bodenleger).`;
+
+const LESEN_TOOL = {
+  name: 'angebot_erfassen',
+  description: 'Erfasst Kopf- und Positionsdaten des Dokuments exakt wie abgedruckt.',
+  parameters: {
+    type: 'object',
+    properties: {
+      ist_handwerker_dokument: { type: 'boolean' },
+      handwerker_firma: { type: ['string', 'null'] },
+      gewerk: { type: ['string', 'null'] },
+      summe_netto: { type: ['number', 'null'] },
+      summe_brutto: { type: ['number', 'null'] },
+      positionen: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            position_nummer: { type: ['string', 'null'] },
+            beschreibung: { type: 'string' },
+            menge: { type: ['number', 'null'] },
+            einheit: { type: ['string', 'null'] },
+            einzelpreis: { type: ['number', 'null'] },
+            gesamtpreis: { type: ['number', 'null'] },
+            ist_pauschal: { type: 'boolean' },
+            ist_optional: { type: 'boolean' },
+          },
+          required: ['beschreibung', 'menge', 'einheit', 'einzelpreis', 'gesamtpreis', 'ist_pauschal', 'ist_optional'],
+        },
+      },
+    },
+    required: ['ist_handwerker_dokument', 'handwerker_firma', 'gewerk', 'summe_netto', 'summe_brutto', 'positionen'],
+  },
 };
 
-// Präziser System-Prompt für Handwerker-Angebote v3.0
-const SYSTEM_PROMPT = `Du analysierst ein deutsches Handwerker-Angebot oder eine Rechnung.
+// ---------- Schritt 2: PRÜFEN ----------
+const SUMMEN_BEGRIFFE = ['übertrag', 'zwischensumme', 'nettobetrag', 'bruttobetrag', 'gesamtsumme', 'mwst', 'mehrwertsteuer', 'umsatzsteuer', 'summe netto', 'summe brutto', 'titelsumme', 'endbetrag'];
 
-SCHRITT 1 - DOKUMENT VERSTEHEN:
-- Lies das GESAMTE Dokument sorgfältig
-- Identifiziere die Handwerker-Firma
-- Erkenne das Gewerk (Zimmerei, Elektro, Sanitär, Maler, etc.)
-- Finde den Gesamtbetrag (Brutto mit MwSt)
+interface RawPos {
+  position_nummer: string | null; beschreibung: string; menge: number | null; einheit: string | null;
+  einzelpreis: number | null; gesamtpreis: number | null; ist_pauschal: boolean; ist_optional: boolean;
+}
 
-SCHRITT 2 - POSITIONEN EXTRAHIEREN:
-Eine ECHTE Rechnungsposition hat IMMER diese Merkmale:
-- Eine Positionsnummer (1, 2, 3 oder 1.1, 1.2 oder Pos. 1, etc.)
-- Eine Leistungsbeschreibung
-- Eine Mengenangabe (z.B. "100 m²", "5 Stück", "1 pauschal", "8 Std")
-- Einen Preis (Einzelpreis ODER Gesamtpreis)
+const num = (v: unknown): number | null => (typeof v === 'number' && isFinite(v) ? v : null);
 
-Das sind KEINE Positionen (IGNORIEREN!):
-- Überschriften wie "Angebot", "Rechnung", "Leistungsverzeichnis"
-- Einleitungstexte und Begrüßungen
-- "Zwischensumme", "Übertrag", "Netto", "Brutto", "MwSt", "Summe"
-- Bankverbindungen und Kontodaten
-- AGB und rechtliche Hinweise
-- Hinweisblöcke und Erklärungen ohne Preis
-- Fußzeilen und Kopfzeilen
+export function pruefen(raw: RawPos[], summeNetto: number | null, summeBrutto: number | null) {
+  const hinweise: string[] = [];
+  const seen = new Set<string>();
+  let duplikate = 0, summenzeilen = 0, rechenfehler = 0;
 
-SCHRITT 3 - PREISBEWERTUNG MIT MARKTDATEN 2024/2025:
+  const positionen = raw
+    .map((p) => ({
+      ...p,
+      beschreibung: String(p.beschreibung || '').trim(),
+      menge: num(p.menge), einzelpreis: num(p.einzelpreis), gesamtpreis: num(p.gesamtpreis),
+    }))
+    .filter((p) => {
+      const d = p.beschreibung.toLowerCase();
+      if (!d) return false;
+      if (SUMMEN_BEGRIFFE.some((t) => d.startsWith(t) || (d.includes(t) && d.length < 40))) { summenzeilen++; return false; }
+      const key = `${p.position_nummer ?? ''}|${d.replace(/\s+/g, ' ').slice(0, 80)}|${p.gesamtpreis ?? p.einzelpreis ?? ''}`;
+      if (seen.has(key)) { duplikate++; return false; }
+      seen.add(key);
+      return true;
+    })
+    .map((p) => {
+      let rechnung_ok: boolean | null = null;
+      if (p.menge != null && p.einzelpreis != null && p.gesamtpreis != null && p.gesamtpreis > 0) {
+        const diff = Math.abs(p.menge * p.einzelpreis - p.gesamtpreis) / p.gesamtpreis;
+        rechnung_ok = diff <= 0.02;
+        if (!rechnung_ok) rechenfehler++;
+      }
+      // Vergleichspreis je Einheit – nur aus Dokumentwerten abgeleitet, nie erfunden
+      let vergleichspreis: number | null = p.einzelpreis;
+      if (vergleichspreis == null && p.gesamtpreis != null) {
+        vergleichspreis = p.menge && p.menge > 0 ? p.gesamtpreis / p.menge : p.gesamtpreis;
+      }
+      return { ...p, rechnung_ok, vergleichspreis };
+    });
 
-Zimmerei/Holzbau (Referenzpreise pro Einheit):
-- Schalung/Verkleidung demontieren: 30-45 €/m²
-- OSB-Platten 22mm verlegen: 18-28 €/m²
-- Holzfaserplatten verlegen: 20-35 €/m²
-- Balken aufdoppeln (KVH 8x12): 80-140 €/Stück
-- Balken aufdoppeln (KVH 12x12): 120-200 €/Stück
-- Deckendurchbruch herstellen: 200-400 € pauschal
-- Container 7m³ stellen: 250-400 € pauschal
-- Container 10m³ stellen: 350-500 € pauschal
-- Entsorgung Bauschutt: 80-150 €/t
-- Entsorgung Mischmüll: 150-280 €/t
-- Heraklith/Dämmplatten ausbauen: 20-35 €/m²
-- Dachstuhl Reparatur: 60-90 €/Std
+  if (duplikate) hinweise.push(`${duplikate} doppelt erkannte Position(en) wurden zusammengeführt.`);
+  if (rechenfehler) hinweise.push(`Bei ${rechenfehler} Position(en) passt Menge × Einzelpreis nicht zum Gesamtpreis.`);
 
-Elektro (Referenzpreise):
-- Steckdose setzen: 35-60 €/Stück
-- Lichtschalter setzen: 30-50 €/Stück
-- Leitung verlegen: 8-15 €/m
-- Unterverteiler installieren: 300-600 € pauschal
-- Stundensatz Elektriker: 55-75 €/Std
+  const summePositionen = positionen
+    .filter((p) => !p.ist_optional)
+    .reduce((s, p) => s + (p.gesamtpreis ?? (p.menge != null && p.einzelpreis != null ? p.menge * p.einzelpreis : 0)), 0);
 
-Sanitär (Referenzpreise):
-- Waschtisch montieren: 80-150 €/Stück
-- WC montieren: 100-200 €/Stück
-- Heizkörper montieren: 120-250 €/Stück
-- Rohrleitung verlegen: 40-80 €/m
-- Stundensatz Sanitär: 55-75 €/Std
-
-Maler (Referenzpreise):
-- Wand streichen: 8-15 €/m²
-- Decke streichen: 10-18 €/m²
-- Tapezieren: 12-25 €/m²
-- Lackieren Türrahmen: 40-80 €/Stück
-- Stundensatz Maler: 45-60 €/Std
-
-BEWERTUNGSSTUFEN:
-- "im_regionalen_rahmen": Preis liegt im Bereich ±20% vom Marktpreis
-- "leicht_ueber_vergleich": Preis liegt 20-40% über Marktpreis
-- "auffaellig_hoch": Preis liegt über 40% über Marktpreis
-- "auffaellig_niedrig": Preis liegt über 30% unter Marktpreis (verdächtig günstig)
-
-WICHTIGE REGELN:
-1. Handwerker-Marge von 15-25% auf Material ist NORMAL
-2. Anfahrtspauschalen und Kleinmengen-Aufschläge sind üblich
-3. Bei Spezialarbeiten ohne Vergleichsdaten: "im_regionalen_rahmen" mit Hinweis
-4. NIEMALS Positionen erfinden - nur was im Dokument steht!
-5. Wenn du dir bei einem Preis unsicher bist: "im_regionalen_rahmen"
-
-AUSGABEFORMAT (JSON):
-{
-  "handwerker_firma": "Name der Firma",
-  "service_domain": "zimmerei|elektro|sanitaer|maler|allgemein",
-  "gesamtpreis": 12345.67,
-  "positionen": [
-    {
-      "position_nummer": "1",
-      "beschreibung": "Genaue Beschreibung aus dem Dokument",
-      "menge": 100,
-      "einheit": "m²",
-      "einzelpreis": 35.80,
-      "gesamtpreis": 3580.00,
-      "einordnung_stufe": "im_regionalen_rahmen",
-      "einordnung_begruendung": "Marktpreis für Schalung demontieren: 30-45€/m², angeboten: 35,80€/m²",
-      "marktpreis_min": 30.00,
-      "marktpreis_max": 45.00,
-      "abweichung_prozent": 0
+  let summe_passt: boolean | null = null;
+  const ref = summeNetto ?? (summeBrutto != null ? summeBrutto / 1.19 : null);
+  if (ref != null && ref > 0 && summePositionen > 0) {
+    summe_passt = Math.abs(summePositionen - ref) / ref <= 0.05;
+    if (!summe_passt) {
+      hinweise.push('Die Summe der erkannten Positionen weicht vom Gesamtbetrag des Dokuments ab – möglicherweise wurden nicht alle Positionen vollständig gelesen (z. B. Rabatte oder Nachlässe).');
     }
-  ],
-  "analysis_summary": "Kurze Zusammenfassung in 2-3 Sätzen"
-}`;
-
-serve(async (req) => {
-  console.log('[analyze-angebot] v3.0 - Kompletter Reset');
-  
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
   }
 
-  const startTime = Date.now();
+  return {
+    positionen,
+    validierung: {
+      summe_positionen_netto: Math.round(summePositionen * 100) / 100,
+      summe_dokument_netto: ref != null ? Math.round(ref * 100) / 100 : null,
+      summe_passt, duplikate_entfernt: duplikate, summenzeilen_entfernt: summenzeilen, rechenfehler, hinweise,
+    },
+  };
+}
+
+// ---------- Schritt 3: VERGLEICH ----------
+const VERGLEICH_SYSTEM = `Du kennst übliche Netto-Preise für Handwerkerleistungen in Deutschland (2024–2026).
+Gib für JEDE Position eine realistische Netto-Spannbreite (min/max) an, die vergleichbare Betriebe in der Region typischerweise verlangen.
+- Die Spannbreite muss sich auf DIESELBE Bezugsbasis beziehen wie "vergleichspreis" (je angegebener Einheit; bei Pauschalen für die gesamte Leistung).
+- Inkl. üblicher Material- und Lohnanteile, wenn die Beschreibung "liefern und montieren" o. ä. nahelegt.
+- Realistisch und eher breit statt erfunden präzise. Keine Bewertung, keine Texte – nur Zahlen.
+- "sicherheit": "hoch" bei Standardleistungen, "mittel" bei üblichen, "eingeschraenkt" bei unklaren/sehr individuellen Leistungen.`;
+
+const VERGLEICH_TOOL = {
+  name: 'spannbreiten',
+  description: 'Regionale Netto-Preisspannbreiten je Position.',
+  parameters: {
+    type: 'object',
+    properties: {
+      werte: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            index: { type: 'integer' },
+            preis_min: { type: ['number', 'null'] },
+            preis_max: { type: ['number', 'null'] },
+            sicherheit: { type: 'string', enum: ['hoch', 'mittel', 'eingeschraenkt'] },
+          },
+          required: ['index', 'preis_min', 'preis_max', 'sicherheit'],
+        },
+      },
+    },
+    required: ['werte'],
+  },
+};
+
+function regionHinweis(plz?: string): string {
+  if (!plz || plz.length < 2) return 'Deutschland (keine Region angegeben)';
+  return `PLZ-Region ${plz.slice(0, 2)}xxx`;
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  const start = Date.now();
+  const remaining = () => TOTAL_BUDGET_MS - (Date.now() - start);
 
   try {
-    const body = await req.json();
-    const { fileBase64, plz } = body;
-
-    console.log('[analyze-angebot] Request received, PLZ:', plz);
-
-    if (!fileBase64) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Keine Datei übermittelt' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    const body = await req.json().catch(() => null);
+    const fileBase64: unknown = body?.fileBase64;
+    const plz: string | undefined = typeof body?.plz === 'string' ? body.plz.replace(/\D/g, '').slice(0, 5) : undefined;
+    if (typeof fileBase64 !== 'string' || fileBase64.length < 100) {
+      return json({ success: false, error: 'Keine Datei übermittelt' }, 400);
     }
 
-    // API Key prüfen
     const apiKey = Deno.env.get('LOVABLE_API_KEY');
-    if (!apiKey) {
-      console.error('[analyze-angebot] LOVABLE_API_KEY nicht konfiguriert');
-      return new Response(
-        JSON.stringify({ success: false, error: 'API-Konfigurationsfehler' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    if (!apiKey) return json({ success: false, error: 'API-Konfigurationsfehler' }, 500);
+
+    const m = fileBase64.match(/^data:([^;]+);base64,(.+)$/s);
+    const mime = (m ? m[1] : 'application/pdf').toLowerCase();
+    const b64 = m ? m[2] : fileBase64;
+    const allowed = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!allowed.includes(mime)) {
+      return json({ success: false, error: 'Dateiformat nicht unterstützt. Bitte PDF, JPG, PNG oder WEBP hochladen.' }, 400);
     }
+    const dataUrl = `data:${mime === 'image/jpg' ? 'image/jpeg' : mime};base64,${b64}`;
+    console.log(`[analyze-angebot] v4 start mime=${mime} size=${b64.length}`);
 
-    // Base64 aus Data-URL extrahieren
-    let base64Content = fileBase64;
-    let mimeType = 'application/pdf';
-    
-    if (fileBase64.startsWith('data:')) {
-      const matches = fileBase64.match(/^data:([^;]+);base64,(.+)$/);
-      if (matches) {
-        mimeType = matches[1];
-        base64Content = matches[2];
-        console.log('[analyze-angebot] Data-URL parsed, MIME:', mimeType, 'Base64 length:', base64Content.length);
-      }
-    }
-
-    // Bestimme media_type für die API
-    let mediaType = 'application/pdf';
-    if (mimeType.includes('jpeg') || mimeType.includes('jpg')) {
-      mediaType = 'image/jpeg';
-    } else if (mimeType.includes('png')) {
-      mediaType = 'image/png';
-    } else if (mimeType.includes('webp')) {
-      mediaType = 'image/webp';
-    }
-
-    console.log('[analyze-angebot] Sending to Lovable AI, media_type:', mediaType);
-
-    // Lovable AI aufrufen
-    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          {
-            role: 'system',
-            content: SYSTEM_PROMPT
-          },
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: `Analysiere dieses Handwerker-Dokument.${plz ? ` Region: PLZ ${plz}` : ''}\n\nExtrahiere NUR die echten Positionen mit Preisen und bewerte sie anhand der Marktdaten. Antworte NUR mit dem JSON-Objekt, kein zusätzlicher Text.`
-              },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: `data:${mediaType};base64,${base64Content}`
-                }
-              }
-            ]
-          }
-        ],
-        max_tokens: 8000,
-        temperature: 0.1
-      })
-    });
-
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error('[analyze-angebot] AI API Error:', aiResponse.status, errorText);
-      
-      if (aiResponse.status === 429) {
-        return new Response(
-          JSON.stringify({ success: false, error: 'Zu viele Anfragen. Bitte warten Sie einen Moment.' }),
-          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-      
-      return new Response(
-        JSON.stringify({ success: false, error: 'KI-Analyse fehlgeschlagen' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    const aiData = await aiResponse.json();
-    const rawContent = aiData.choices?.[0]?.message?.content || '';
-    
-    console.log('[analyze-angebot] AI response length:', rawContent.length);
-    console.log('[analyze-angebot] AI response preview:', rawContent.substring(0, 500));
-
-    // JSON extrahieren
-    let analysis;
+    // Schritt 1
+    const lesenContent = [
+      { type: 'text', text: 'Erfasse alle Positionen dieses Dokuments exakt.' },
+      { type: 'image_url', image_url: { url: dataUrl } },
+    ];
+    let erfasst: any;
     try {
-      // Versuche direktes Parsing
-      let jsonStr = rawContent;
-      
-      // Entferne Markdown-Code-Block falls vorhanden
-      const jsonMatch = rawContent.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (jsonMatch) {
-        jsonStr = jsonMatch[1].trim();
-      } else {
-        // Versuche JSON-Objekt zu finden
-        const objMatch = rawContent.match(/\{[\s\S]*\}/);
-        if (objMatch) {
-          jsonStr = objMatch[0];
-        }
-      }
-      
-      analysis = JSON.parse(jsonStr);
-    } catch (parseError) {
-      console.error('[analyze-angebot] JSON Parse Error:', parseError);
-      console.error('[analyze-angebot] Raw content:', rawContent.substring(0, 1000));
-      
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Antwort konnte nicht verarbeitet werden',
-          raw_response: rawContent.substring(0, 1000)
-        }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      erfasst = await callTool({ apiKey, model: MODEL_LESEN, system: LESEN_SYSTEM, userContent: lesenContent, tool: LESEN_TOOL, timeoutMs: 26_000 });
+    } catch (e) {
+      if (e instanceof AiError && (e.status === 429 || e.status === 402)) throw e;
+      console.warn('[analyze-angebot] Lesen mit Pro fehlgeschlagen, Fallback Flash:', (e as Error).message);
+      erfasst = await callTool({ apiKey, model: MODEL_LESEN_FALLBACK, system: LESEN_SYSTEM, userContent: lesenContent, tool: LESEN_TOOL, timeoutMs: remaining() - 8_000 });
+    }
+    console.log(`[analyze-angebot] Lesen fertig nach ${Date.now() - start}ms, roh=${erfasst?.positionen?.length ?? 0}`);
+
+    if (erfasst?.ist_handwerker_dokument === false && !(erfasst?.positionen?.length)) {
+      return json({ success: false, error: 'Das Dokument scheint kein Handwerker-Angebot bzw. keine Handwerker-Rechnung zu sein.' }, 422);
     }
 
-    // Positionen validieren und bereinigen
-    let positionen = analysis.positionen || [];
-    
-    // Filter: Nur echte Positionen behalten
-    const ignoreTerms = ['übertrag', 'zwischensumme', 'nettobetrag', 'bruttobetrag', 'gesamtsumme', 'mwst', 'mehrwertsteuer', 'umsatzsteuer', 'summe netto', 'summe brutto'];
-    
-    positionen = positionen.filter((pos: any) => {
-      // Muss einen Preis haben
-      if (!pos.gesamtpreis && pos.gesamtpreis !== 0) {
-        console.log('[analyze-angebot] Position ohne Preis entfernt:', pos.beschreibung?.substring(0, 50));
-        return false;
+    // Schritt 2
+    const { positionen, validierung } = pruefen(erfasst?.positionen || [], num(erfasst?.summe_netto), num(erfasst?.summe_brutto));
+    if (positionen.length === 0) {
+      return json({ success: false, error: 'Im Dokument konnten keine Positionen mit Preisen erkannt werden.' }, 422);
+    }
+
+    // Schritt 3
+    const region = regionHinweis(plz);
+    const bewertbar = positionen.map((p, i) => ({ p, i })).filter(({ p }) => p.vergleichspreis != null);
+    const spannen = new Map<number, { min: number | null; max: number | null; sicherheit: string }>();
+    let datenbasis = `KI-gestützte Einschätzung regionaler Vergleichswerte (${region})`;
+    if (bewertbar.length > 0) {
+      try {
+        const liste = bewertbar.map(({ p, i }) => ({
+          index: i, beschreibung: p.beschreibung, menge: p.menge, einheit: p.einheit,
+          vergleichspreis_bezug: p.ist_pauschal || p.einzelpreis == null && !p.menge ? 'gesamte Leistung (pauschal)' : `je ${p.einheit || 'Einheit'}`,
+        }));
+        const res = await callTool({
+          apiKey, model: MODEL_VERGLEICH, system: VERGLEICH_SYSTEM, tool: VERGLEICH_TOOL,
+          timeoutMs: remaining() - 1_500,
+          userContent: `Gewerk: ${erfasst?.gewerk || 'Handwerk'}\nRegion: ${region}\nPositionen (JSON):\n${JSON.stringify(liste)}`,
+        });
+        for (const w of res?.werte || []) {
+          if (typeof w?.index === 'number') spannen.set(w.index, { min: num(w.preis_min), max: num(w.preis_max), sicherheit: w.sicherheit || 'mittel' });
+        }
+      } catch (e) {
+        if (e instanceof AiError && (e.status === 429 || e.status === 402)) throw e;
+        console.error('[analyze-angebot] Vergleich fehlgeschlagen:', (e as Error).message);
+        datenbasis = 'Vergleichswerte konnten nicht rechtzeitig ermittelt werden';
       }
-      
-      // Keine Summen-Zeilen
-      const desc = (pos.beschreibung || '').toLowerCase();
-      if (ignoreTerms.some(term => desc.includes(term) && desc.length < 40)) {
-        console.log('[analyze-angebot] Summen-Position entfernt:', pos.beschreibung?.substring(0, 50));
-        return false;
-      }
-      
-      return true;
+    }
+
+    // Ampel (Code)
+    const statistik: Record<Stufe, number> = { im_regionalen_rahmen: 0, leicht_ueber_vergleich: 0, auffaellig_hoch: 0, auffaellig_niedrig: 0, nicht_einordenbar: 0 };
+    const ergebnis = positionen.map((p, i) => {
+      const s = spannen.get(i);
+      const min = s?.min ?? null, max = s?.max ?? null;
+      const { stufe, abweichung_prozent } = classify({ vergleichspreis: p.vergleichspreis, min, max });
+      statistik[stufe]++;
+      const einheitText = p.ist_pauschal ? 'Pauschale' : p.einheit;
+      const hinweise: string[] = [];
+      if (p.rechnung_ok === false) hinweise.push('Menge × Einzelpreis ergibt nicht den angegebenen Gesamtpreis.');
+      if (p.ist_optional) hinweise.push('Bedarfs-/Alternativposition.');
+      if (s?.sicherheit === 'eingeschraenkt') hinweise.push('Eingeschränkte Vergleichbarkeit wegen individueller Leistung.');
+      return {
+        position_nummer: p.position_nummer || String(i + 1),
+        beschreibung: p.beschreibung,
+        menge: p.menge, einheit: p.einheit,
+        einzelpreis: p.einzelpreis, gesamtpreis: p.gesamtpreis,
+        vergleichspreis: p.vergleichspreis != null ? Math.round(p.vergleichspreis * 100) / 100 : null,
+        ist_pauschal: p.ist_pauschal, ist_optional: p.ist_optional,
+        einordnung_stufe: stufe,
+        abweichung_prozent,
+        marktpreis_min: min, marktpreis_max: max,
+        einordnung_begruendung: begruendung(stufe, min, max, einheitText, datenbasis),
+        hinweis: hinweise.join(' ') || undefined,
+        datengrundlage: datenbasis,
+        datenquelle: 'KI-Einschätzung',
+        confidence: s ? { level: s.sicherheit, reason: s.sicherheit === 'hoch' ? 'Standardleistung, gut vergleichbar' : s.sicherheit === 'mittel' ? 'Übliche Leistung, mittlere Vergleichbarkeit' : 'Individuelle Leistung, eingeschränkt vergleichbar', samples: 0 } : undefined,
+      };
     });
 
-    // Positionen mit korrekter Struktur versehen
-    positionen = positionen.map((pos: any, idx: number) => ({
-      position_nummer: pos.position_nummer || String(idx + 1),
-      beschreibung: pos.beschreibung || 'Position',
-      menge: pos.menge || 1,
-      einheit: pos.einheit || 'Stück',
-      einzelpreis: pos.einzelpreis || pos.gesamtpreis || 0,
-      gesamtpreis: pos.gesamtpreis || pos.einzelpreis || 0,
-      einordnung_stufe: pos.einordnung_stufe || 'im_regionalen_rahmen',
-      einordnung_begruendung: pos.einordnung_begruendung || 'Marktüblicher Preis',
-      marktpreis_min: pos.marktpreis_min || null,
-      marktpreis_max: pos.marktpreis_max || null,
-      marktpreis_durchschnitt: pos.marktpreis_durchschnitt || null,
-      abweichung_prozent: pos.abweichung_prozent || 0,
-      datenquelle: 'KI-Markteinschätzung',
-      datengrundlage: 'Marktdaten 2024/2025',
-    }));
+    const n = ergebnis.length;
+    const auff = statistik.auffaellig_hoch + statistik.auffaellig_niedrig;
+    const summary = `${n} Position${n !== 1 ? 'en' : ''} erkannt. Im regionalen Vergleich: ${statistik.im_regionalen_rahmen} innerhalb der beobachteten Spannbreite, ${statistik.leicht_ueber_vergleich} leicht darüber, ${auff} auffällig${statistik.nicht_einordenbar ? `, ${statistik.nicht_einordenbar} nicht einordenbar` : ''}. Die Einordnung ist indikativ.`;
+    const plausibility_score = n ? Math.round(((statistik.im_regionalen_rahmen + statistik.leicht_ueber_vergleich * 0.5) / n) * 100) : null;
 
-    console.log('[analyze-angebot] Gefilterte Positionen:', positionen.length);
-
-    // Statistiken berechnen
-    const stufen: Record<string, number> = {
-      im_regionalen_rahmen: 0,
-      leicht_ueber_vergleich: 0,
-      auffaellig_hoch: 0,
-      auffaellig_niedrig: 0
-    };
-    
-    positionen.forEach((pos: any) => {
-      const stufe = pos.einordnung_stufe?.toLowerCase().replace(/\s+/g, '_') || 'im_regionalen_rahmen';
-      if (stufe in stufen) {
-        stufen[stufe]++;
-      }
+    console.log(`[analyze-angebot] fertig nach ${Date.now() - start}ms`, statistik, validierung.hinweise);
+    return json({
+      success: true,
+      analysis: {
+        handwerker_firma: erfasst?.handwerker_firma || null,
+        gewerk: erfasst?.gewerk || null,
+        service_domain: 'handwerk',
+        gesamtpreis: num(erfasst?.summe_brutto) ?? num(erfasst?.summe_netto) ?? validierung.summe_positionen_netto,
+        positionen: ergebnis,
+        analysis_summary: summary,
+        plausibility_score,
+        statistik,
+        validierung,
+      },
+      processing_time_ms: Date.now() - start,
     });
-
-    const processingTime = Date.now() - startTime;
-    console.log(`[analyze-angebot] ✓ Erfolgreich abgeschlossen in ${processingTime}ms`);
-    console.log(`[analyze-angebot] Positionen: ${positionen.length}, Stufen:`, stufen);
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        analysis: {
-          handwerker_firma: analysis.handwerker_firma || 'Unbekannt',
-          service_domain: analysis.service_domain || 'allgemein',
-          gesamtpreis: analysis.gesamtpreis,
-          positionen: positionen,
-          analysis_summary: analysis.analysis_summary || `${positionen.length} Positionen analysiert.`,
-          statistik: stufen
-        },
-        processing_time_ms: processingTime
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-
   } catch (error) {
-    console.error('[analyze-angebot] Error:', error);
-    
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: error instanceof Error ? error.message : 'Unbekannter Fehler',
-        processing_time_ms: Date.now() - startTime
-      }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    const status = error instanceof AiError ? error.status : 500;
+    const msg = error instanceof Error && error.name === 'AbortError'
+      ? 'Die Analyse hat zu lange gedauert. Bitte erneut versuchen.'
+      : error instanceof Error ? error.message : 'Unbekannter Fehler';
+    console.error('[analyze-angebot] Fehler:', msg);
+    return json({ success: false, error: msg, processing_time_ms: Date.now() - start }, status);
   }
 });

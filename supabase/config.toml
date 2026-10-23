@@ -3,15 +3,6 @@ project_id = "belwvphmskmbhvbrkeda"
 [functions.analyze-angebot]
 verify_jwt = false
 
-[functions.evaluate-price]
-verify_jwt = false
-
-[functions.extract-pdf]
-verify_jwt = false
-
-[functions.fetch-market-prices]
-verify_jwt = false
-
 [functions.generate-pdf-report]
 verify_jwt = true
 
@@ -21,8 +12,3 @@ verify_jwt = false
 [functions.save-guest-analysis]
 verify_jwt = false
 
-[functions.generate-embedding]
-verify_jwt = false
-
-[functions.seed-embeddings]
-verify_jwt = false

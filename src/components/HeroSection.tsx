@@ -54,7 +54,7 @@ export function HeroSection({ onUploadClick }: HeroSectionProps) {
                 transition={{ delay: 0.25 }}
                 className="text-sm font-semibold text-primary uppercase tracking-wider"
               >
-                Für Handwerker-Angebote & KFZ-Werkstatt-Rechnungen
+                Für Handwerker-Angebote & -Rechnungen
               </motion.p>
 
               <motion.h1
@@ -73,7 +73,7 @@ export function HeroSection({ onUploadClick }: HeroSectionProps) {
                 transition={{ delay: 0.4 }}
                 className="text-lg text-muted-foreground max-w-lg leading-relaxed"
               >
-                Egal ob Dachdecker, Elektriker, Sanitär oder KFZ-Werkstatt – 
+                Egal ob Dachdecker, Elektriker, Maler oder Sanitär – 
                 laden Sie bis zu 3 Angebote hoch und sehen Sie sofort, welche Positionen auffällig sind.
               </motion.p>
             </div>
@@ -113,7 +113,7 @@ export function HeroSection({ onUploadClick }: HeroSectionProps) {
               transition={{ delay: 0.6 }}
               className="text-sm text-muted-foreground"
             >
-              PDF, JPG, PNG, Excel • Max. 10 MB pro Datei
+              PDF, JPG, PNG • Max. 10 MB pro Datei
             </motion.p>
           </motion.div>
 

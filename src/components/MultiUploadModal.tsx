@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Upload, X, FileText, Image, FileSpreadsheet, Loader2, CheckCircle, AlertCircle, Wrench, Car, MapPin, Info } from 'lucide-react';
+import { Upload, X, FileText, Image, Loader2, CheckCircle, AlertCircle, Wrench, MapPin, Info } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useGuestSession, GuestDocument } from '@/hooks/useGuestSession';
 import { supabase } from '@/integrations/supabase/client';
@@ -24,7 +24,7 @@ interface FileWithProgress {
   error?: string;
 }
 
-// Kategorie ist immer 'handwerk' - KFZ wurde entfernt
+// Nur Handwerker-Dokumente
 
 const MAX_FILES = 3;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -32,16 +32,12 @@ const ALLOWED_TYPES = [
   'application/pdf',
   'image/jpeg',
   'image/png',
-  'image/webp',
-  'text/csv',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  'image/webp'
 ];
 
 const getFileIcon = (type: string) => {
   if (type.includes('pdf')) return FileText;
   if (type.includes('image')) return Image;
-  if (type.includes('csv') || type.includes('excel') || type.includes('spreadsheet')) return FileSpreadsheet;
   return FileText;
 };
 
@@ -82,7 +78,7 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
 
   const validateFile = useCallback((file: File): string | null => {
     if (!ALLOWED_TYPES.includes(file.type)) {
-      return `${file.name}: Ungültiger Dateityp. Erlaubt sind PDF, JPG, PNG, CSV, Excel.`;
+      return `${file.name}: Ungültiger Dateityp. Erlaubt sind PDF, JPG, PNG, WEBP.`;
     }
     if (file.size > MAX_FILE_SIZE) {
       return `${file.name}: Datei zu groß. Maximum: 10 MB.`;
@@ -248,15 +244,21 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
         completedSteps += 2;
         setOverallProgress((completedSteps / totalSteps) * 100);
 
-        if (error) {
-          console.error(`Error analyzing document ${i + 1}:`, error);
+        if (error || data?.success === false) {
+          let message = data?.error || error?.message || 'Analyse fehlgeschlagen';
+          try {
+            const body = await (error as any)?.context?.json?.();
+            if (body?.error) message = body.error;
+          } catch { /* ignore */ }
+          console.error(`Error analyzing document ${i + 1}:`, message);
           setFiles(prev => prev.map(f => 
-            f.id === fileWithProgress.id ? { ...f, status: 'error' as const, error: error.message } : f
+            f.id === fileWithProgress.id ? { ...f, status: 'error' as const, error: message } : f
           ));
+          toast({ title: `${file.name}: Analyse nicht möglich`, description: message, variant: 'destructive' });
           results.push({
             documentIndex: i,
             fileName: file.name,
-            error: error.message,
+            error: message,
             status: 'error'
           });
         } else {
@@ -276,7 +278,6 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
           };
           await addDocument(guestDoc);
 
-          // Extract analysis data from nested structure
           const analysisData = data?.analysis || data;
           
           results.push({
@@ -286,7 +287,9 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
             gesamtpreis: analysisData?.gesamtpreis,
             plausibility_score: analysisData?.plausibility_score,
             service_domain: analysisData?.service_domain,
-            handwerker_name: analysisData?.handwerker_firma || analysisData?.handwerker_name,
+            gewerk: analysisData?.gewerk,
+            handwerker_firma: analysisData?.handwerker_firma,
+            validierung: analysisData?.validierung,
             analysis_summary: analysisData?.analysis_summary,
             status: 'success'
           });
@@ -407,7 +410,7 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept=".pdf,.jpg,.jpeg,.png,.webp,.csv,.xls,.xlsx"
+                accept=".pdf,.jpg,.jpeg,.png,.webp"
                 onChange={handleFileSelect}
                 className="hidden"
               />
@@ -421,7 +424,7 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
                 oder klicken zum Auswählen
               </p>
               <p className="text-xs text-muted-foreground mt-3">
-                PDF, JPG, PNG, Excel • Max. 10 MB
+                PDF, JPG, PNG • Max. 10 MB
               </p>
               <p className="text-xs text-muted-foreground/70 mt-1">
                 Mehrseitige Dokumente werden vollständig analysiert
@@ -505,7 +508,7 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
             <div className="space-y-2">
               <Label htmlFor="plz" className="text-sm font-medium flex items-center gap-2">
                 <MapPin className="w-4 h-4" />
-                PLZ des Handwerkers / der Werkstatt
+                PLZ des Handwerksbetriebs
                 <span className="text-muted-foreground font-normal">(optional)</span>
               </Label>
               <Input

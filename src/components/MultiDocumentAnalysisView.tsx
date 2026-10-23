@@ -84,6 +84,8 @@ interface DocumentResult {
   handwerker_name?: string;
   handwerker_firma?: string;
   analysis_summary?: string;
+  gewerk?: string;
+  validierung?: { hinweise?: string[]; summe_passt?: boolean | null };
 }
 
 interface MultiDocumentAnalysisViewProps {
@@ -97,57 +99,12 @@ interface MultiDocumentAnalysisViewProps {
   onClose: () => void;
 }
 
-// Convert status string to EvaluationLevel - with fallback to deviation-based calculation
-const toEvaluationLevel = (stufe?: string, abweichung_prozent?: number): EvaluationLevel => {
-  // First try to parse the stufe string
-  if (stufe) {
-    const normalized = stufe.toLowerCase().replace(/[äöü]/g, (match) => {
-      return { 'ä': 'ae', 'ö': 'oe', 'ü': 'ue' }[match] || match;
-    }).replace(/[\s-]+/g, '_');
-    
-    if (normalized.includes('im_rahmen') || normalized.includes('rahmen') || normalized.includes('regional')) {
-      return 'im_regionalen_rahmen';
-    }
-    if (normalized.includes('leicht_ueber') || normalized.includes('leicht_uber') || normalized.includes('leicht_über')) {
-      return 'leicht_ueber_vergleich';
-    }
-    if (normalized.includes('auffaellig_hoch') || normalized.includes('auffällig_hoch')) {
-      return 'auffaellig_hoch';
-    }
-    if (normalized.includes('auffaellig_niedrig') || normalized.includes('auffällig_niedrig')) {
-      return 'auffaellig_niedrig';
-    }
-    // Only return nicht_einordenbar if explicitly stated AND no deviation available
-    if (normalized.includes('nicht_einordenbar') || normalized.includes('nicht_eindeutig')) {
-      // If we have a deviation, calculate based on that instead
-      if (abweichung_prozent !== undefined && abweichung_prozent !== null) {
-        return calculateLevelFromDeviation(abweichung_prozent);
-      }
-      return 'nicht_einordenbar';
-    }
-  }
-  
-  // Fallback: If we have a deviation percentage, calculate the level from it
-  if (abweichung_prozent !== undefined && abweichung_prozent !== null) {
-    return calculateLevelFromDeviation(abweichung_prozent);
-  }
-  
-  return 'nicht_einordenbar';
-};
+// Die Ampel kommt ausschließlich vom Server (feste Regeln) – hier wird nicht neu gerechnet.
+const LEVELS: EvaluationLevel[] = ['im_regionalen_rahmen', 'leicht_ueber_vergleich', 'auffaellig_hoch', 'auffaellig_niedrig', 'nicht_einordenbar'];
+const toEvaluationLevel = (stufe?: string): EvaluationLevel =>
+  (LEVELS as string[]).includes(stufe || '') ? (stufe as EvaluationLevel) : 'nicht_einordenbar';
 
-// Calculate evaluation level from deviation percentage
-const calculateLevelFromDeviation = (abweichung: number): EvaluationLevel => {
-  const absDeviation = Math.abs(abweichung);
-  
-  if (absDeviation <= 15) {
-    return 'im_regionalen_rahmen';
-  } else if (absDeviation <= 25) {
-    return 'leicht_ueber_vergleich';
-  } else {
-    // More than 25% deviation
-    return abweichung > 0 ? 'auffaellig_hoch' : 'auffaellig_niedrig';
-  }
-};
+const eur = (n: number) => n.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
 
 // Status configuration for summary
 const statusConfig: Record<EvaluationLevel, { label: string; shortLabel: string; dotClass: string }> = {
@@ -169,7 +126,7 @@ function getStatusCounts(positionen: Position[]) {
   };
   
   positionen.forEach(pos => {
-    const status = toEvaluationLevel(pos.einordnung_stufe, pos.abweichung_prozent);
+    const status = toEvaluationLevel(pos.einordnung_stufe);
     counts[status]++;
   });
   
@@ -228,7 +185,7 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
 
     successfulDocs.forEach(doc => {
       doc.positionen?.forEach(pos => {
-        const status = toEvaluationLevel(pos.einordnung_stufe, pos.abweichung_prozent);
+        const status = toEvaluationLevel(pos.einordnung_stufe);
         counts[status]++;
       });
     });
@@ -310,7 +267,7 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
                       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                         <div className="space-y-1">
                           <CardTitle className="text-lg font-semibold">
-                            Angebot: {doc.service_domain || doc.fileName || 'Handwerkerleistung'}
+                            Angebot: {doc.gewerk || 'Handwerkerleistung'}
                           </CardTitle>
                           <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
                             {(analysisData.stadt || analysisData.plz) && (
@@ -347,6 +304,18 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
                         </div>
                       )}
 
+                      {doc.validierung?.hinweise && doc.validierung.hinweise.length > 0 && (
+                        <div className="mb-6 p-4 rounded-lg border border-border bg-muted/30 space-y-1">
+                          <h4 className="font-medium text-sm flex items-center gap-2">
+                            <Info className="w-4 h-4 text-muted-foreground" />
+                            Hinweise zur Erfassung
+                          </h4>
+                          {doc.validierung.hinweise.map((h, k) => (
+                            <p key={k} className="text-sm text-muted-foreground">{h}</p>
+                          ))}
+                        </div>
+                      )}
+
                       {/* Desktop Table */}
                       <div className="hidden sm:block overflow-x-auto">
                         <Table>
@@ -354,13 +323,14 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
                             <TableRow className="hover:bg-transparent">
                               <TableHead className="w-[50%]">Position</TableHead>
                               <TableHead className="text-right">Menge</TableHead>
+                              <TableHead className="text-right">Einzelpreis</TableHead>
                               <TableHead className="text-right">Status</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {doc.positionen?.map((pos, j) => {
-                              const status = toEvaluationLevel(pos.einordnung_stufe, pos.abweichung_prozent);
-                              const hasDetails = pos.einordnung_begruendung || pos.marktpreis_durchschnitt || pos.hinweis || pos.datengrundlage;
+                              const status = toEvaluationLevel(pos.einordnung_stufe);
+                              const hasDetails = pos.einordnung_begruendung || pos.marktpreis_min != null || pos.hinweis || pos.datengrundlage;
                               
                               return (
                                 <TableRow key={j} className="hover:bg-muted/30">
@@ -368,7 +338,10 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
                                     {pos.beschreibung}
                                   </TableCell>
                                   <TableCell className="text-right">
-                                    {pos.menge != null ? `${pos.menge} ${pos.einheit || ''}`.trim() : '–'}
+                                    {pos.menge != null ? `${pos.menge.toLocaleString('de-DE')} ${pos.einheit || ''}`.trim() : '–'}
+                                  </TableCell>
+                                  <TableCell className="text-right whitespace-nowrap">
+                                    {pos.einzelpreis != null ? eur(pos.einzelpreis) : pos.gesamtpreis != null ? eur(pos.gesamtpreis) : '–'}
                                   </TableCell>
                                   <TableCell>
                                     <div className="flex items-center justify-end gap-2">
@@ -387,19 +360,14 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
                                             {pos.einordnung_begruendung && (
                                               <p className="text-sm">{pos.einordnung_begruendung}</p>
                                             )}
-                                            {pos.marktpreis_durchschnitt && (
+                                            {pos.marktpreis_min != null && pos.marktpreis_max != null && (
                                               <div className="text-xs text-muted-foreground space-y-0.5">
                                                 <p>
-                                                  Regionaler Vergleichswert: {pos.marktpreis_durchschnitt.toLocaleString('de-DE')}€
+                                                  Regionale Spannbreite: {pos.marktpreis_min.toLocaleString('de-DE')}–{pos.marktpreis_max.toLocaleString('de-DE')}€{pos.einheit ? ` je ${pos.einheit}` : ''}
                                                 </p>
-                                                {pos.marktpreis_min != null && pos.marktpreis_max != null && (
-                                                  <p className="text-muted-foreground/80">
-                                                    Spannbreite: {pos.marktpreis_min.toLocaleString('de-DE')}–{pos.marktpreis_max.toLocaleString('de-DE')}€
-                                                  </p>
-                                                )}
-                                                {pos.abweichung_prozent != null && (
+                                                {pos.abweichung_prozent != null && pos.abweichung_prozent !== 0 && (
                                                   <p>
-                                                    Abweichung: {pos.abweichung_prozent > 0 ? '+' : ''}{pos.abweichung_prozent.toFixed(0)}%
+                                                    Abweichung von der Spannbreite: {pos.abweichung_prozent > 0 ? '+' : ''}{pos.abweichung_prozent.toFixed(0)}%
                                                   </p>
                                                 )}
                                               </div>
@@ -443,18 +411,17 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
                       {/* Mobile Cards */}
                       <div className="sm:hidden space-y-3">
                         {doc.positionen?.map((pos, j) => {
-                          const status = toEvaluationLevel(pos.einordnung_stufe, pos.abweichung_prozent);
+                          const status = toEvaluationLevel(pos.einordnung_stufe);
                           return (
                             <div key={j} className="p-3 rounded-lg border bg-card">
                               <div className="flex items-start justify-between gap-2 mb-2">
                                 <p className="font-medium text-sm">{pos.beschreibung}</p>
                                 <StatusBadge status={status} size="sm" />
                               </div>
-                              {pos.menge != null && (
-                                <p className="text-xs text-muted-foreground">
-                                  {pos.menge} {pos.einheit || ''}
-                                </p>
-                              )}
+                              <p className="text-xs text-muted-foreground">
+                                {pos.menge != null ? `${pos.menge.toLocaleString('de-DE')} ${pos.einheit || ''} • ` : ''}
+                                {pos.einzelpreis != null ? `${eur(pos.einzelpreis)} je Einheit` : pos.gesamtpreis != null ? eur(pos.gesamtpreis) : ''}
+                              </p>
                               {pos.einordnung_begruendung && (
                                 <p className="mt-2 text-xs text-muted-foreground">
                                   {pos.einordnung_begruendung}
@@ -524,7 +491,7 @@ export function MultiDocumentAnalysisView({ analysisData, onRequestPDF, onClose 
                   <div>
                     <h3 className="font-semibold">Detaillierter PDF-Report</h3>
                     <p className="text-sm text-muted-foreground">
-                      Vollständige Analyse mit Marktpreisen, Begründungen und Empfehlungen
+                      Vollständige Analyse mit regionalen Vergleichswerten, Begründungen und Hinweisen
                     </p>
                   </div>
                 </div>

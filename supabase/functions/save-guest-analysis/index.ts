@@ -155,7 +155,7 @@ function determinePositionType(position: Position): 'arbeitszeit' | 'material' |
   // Pauschale indicators
   const pauschaleKeywords = ['pauschale', 'psch', 'pauschal', 'komplett', 'gesamt'];
   
-  // Ersatzteil indicators (Kfz-spezifisch)
+  // Ersatzteil indicators
   const ersatzteilKeywords = ['filter', 'öl', 'oel', 'beläge', 'belaege', 'scheiben', 'dämpfer', 'daempfer', 'teile', 'original', 'oem'];
   
   // Material indicators
@@ -212,9 +212,6 @@ function mapServiceDomainToGewerk(serviceDomain: string): string {
     'schreiner': 'Tischler/Schreiner',
     'fliesenleger': 'Fliesenleger',
     'maurer': 'Maurer',
-    'kfz': 'KFZ-Werkstatt',
-    'auto': 'KFZ-Werkstatt',
-    'werkstatt': 'KFZ-Werkstatt',
     'handwerk': 'Allgemeines Handwerk'
   };
   

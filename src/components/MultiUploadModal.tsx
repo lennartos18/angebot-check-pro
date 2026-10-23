@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Upload, X, FileText, Image, FileSpreadsheet, Loader2, CheckCircle, AlertCircle, Wrench, Car, MapPin, Info } from 'lucide-react';
+import { Upload, X, FileText, Image, FileSpreadsheet, Loader2, CheckCircle, AlertCircle, Wrench, MapPin, Info } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useGuestSession, GuestDocument } from '@/hooks/useGuestSession';
 import { supabase } from '@/integrations/supabase/client';
@@ -32,10 +32,7 @@ const ALLOWED_TYPES = [
   'application/pdf',
   'image/jpeg',
   'image/png',
-  'image/webp',
-  'text/csv',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  'image/webp'
 ];
 
 const getFileIcon = (type: string) => {
@@ -505,7 +502,7 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
             <div className="space-y-2">
               <Label htmlFor="plz" className="text-sm font-medium flex items-center gap-2">
                 <MapPin className="w-4 h-4" />
-                PLZ des Handwerkers / der Werkstatt
+                PLZ des Handwerksbetriebs
                 <span className="text-muted-foreground font-normal">(optional)</span>
               </Label>
               <Input

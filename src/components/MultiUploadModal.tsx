@@ -244,15 +244,21 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
         completedSteps += 2;
         setOverallProgress((completedSteps / totalSteps) * 100);
 
-        if (error) {
-          console.error(`Error analyzing document ${i + 1}:`, error);
+        if (error || data?.success === false) {
+          let message = data?.error || error?.message || 'Analyse fehlgeschlagen';
+          try {
+            const body = await (error as any)?.context?.json?.();
+            if (body?.error) message = body.error;
+          } catch { /* ignore */ }
+          console.error(`Error analyzing document ${i + 1}:`, message);
           setFiles(prev => prev.map(f => 
-            f.id === fileWithProgress.id ? { ...f, status: 'error' as const, error: error.message } : f
+            f.id === fileWithProgress.id ? { ...f, status: 'error' as const, error: message } : f
           ));
+          toast({ title: `${file.name}: Analyse nicht möglich`, description: message, variant: 'destructive' });
           results.push({
             documentIndex: i,
             fileName: file.name,
-            error: error.message,
+            error: message,
             status: 'error'
           });
         } else {
@@ -272,7 +278,6 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
           };
           await addDocument(guestDoc);
 
-          // Extract analysis data from nested structure
           const analysisData = data?.analysis || data;
           
           results.push({
@@ -282,7 +287,9 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
             gesamtpreis: analysisData?.gesamtpreis,
             plausibility_score: analysisData?.plausibility_score,
             service_domain: analysisData?.service_domain,
-            handwerker_name: analysisData?.handwerker_firma || analysisData?.handwerker_name,
+            gewerk: analysisData?.gewerk,
+            handwerker_firma: analysisData?.handwerker_firma,
+            validierung: analysisData?.validierung,
             analysis_summary: analysisData?.analysis_summary,
             status: 'success'
           });

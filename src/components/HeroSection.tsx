@@ -113,7 +113,7 @@ export function HeroSection({ onUploadClick }: HeroSectionProps) {
               transition={{ delay: 0.6 }}
               className="text-sm text-muted-foreground"
             >
-              PDF, JPG, PNG, Excel • Max. 10 MB pro Datei
+              PDF, JPG, PNG • Max. 10 MB pro Datei
             </motion.p>
           </motion.div>
 

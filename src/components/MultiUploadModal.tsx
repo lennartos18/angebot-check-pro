@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { Upload, X, FileText, Image, FileSpreadsheet, Loader2, CheckCircle, AlertCircle, Wrench, MapPin, Info } from 'lucide-react';
+import { Upload, X, FileText, Image, Loader2, CheckCircle, AlertCircle, Wrench, MapPin, Info } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useGuestSession, GuestDocument } from '@/hooks/useGuestSession';
 import { supabase } from '@/integrations/supabase/client';
@@ -24,7 +24,7 @@ interface FileWithProgress {
   error?: string;
 }
 
-// Kategorie ist immer 'handwerk' - KFZ wurde entfernt
+// Nur Handwerker-Dokumente
 
 const MAX_FILES = 3;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -38,7 +38,6 @@ const ALLOWED_TYPES = [
 const getFileIcon = (type: string) => {
   if (type.includes('pdf')) return FileText;
   if (type.includes('image')) return Image;
-  if (type.includes('csv') || type.includes('excel') || type.includes('spreadsheet')) return FileSpreadsheet;
   return FileText;
 };
 
@@ -79,7 +78,7 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
 
   const validateFile = useCallback((file: File): string | null => {
     if (!ALLOWED_TYPES.includes(file.type)) {
-      return `${file.name}: Ungültiger Dateityp. Erlaubt sind PDF, JPG, PNG, CSV, Excel.`;
+      return `${file.name}: Ungültiger Dateityp. Erlaubt sind PDF, JPG, PNG, WEBP.`;
     }
     if (file.size > MAX_FILE_SIZE) {
       return `${file.name}: Datei zu groß. Maximum: 10 MB.`;
@@ -404,7 +403,7 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept=".pdf,.jpg,.jpeg,.png,.webp,.csv,.xls,.xlsx"
+                accept=".pdf,.jpg,.jpeg,.png,.webp"
                 onChange={handleFileSelect}
                 className="hidden"
               />
@@ -418,7 +417,7 @@ export function MultiUploadModal({ open, onClose, onAnalysisComplete }: MultiUpl
                 oder klicken zum Auswählen
               </p>
               <p className="text-xs text-muted-foreground mt-3">
-                PDF, JPG, PNG, Excel • Max. 10 MB
+                PDF, JPG, PNG • Max. 10 MB
               </p>
               <p className="text-xs text-muted-foreground/70 mt-1">
                 Mehrseitige Dokumente werden vollständig analysiert

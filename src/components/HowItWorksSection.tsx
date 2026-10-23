@@ -5,7 +5,7 @@ const steps = [
   {
     icon: Upload,
     title: "Hochladen",
-    description: "Bis zu 3 Dokumente per Drag & Drop hochladen. PDF, Bilder oder Excel.",
+    description: "Bis zu 3 Dokumente per Drag & Drop hochladen. PDF oder Fotos (JPG, PNG).",
     color: "bg-blue-500",
   },
   {
